@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hivemind-test-harness"
+version = "0.1.0"
+description = "In-process end-to-end test framework for the HiveMind protocol"
+requires-python = ">=3.9"
+dependencies = []  # all come from the workspace editable installs
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-timeout",
+]
+plot = [
+    "matplotlib>=3.5",
+    "networkx>=3.0",
+]
+
+[tool.pytest.ini_options]
+timeout = 30
+markers = [
+    "slow: tests that spin up large topologies (deselect with -m 'not slow')",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hivemind_test_harness*"]
