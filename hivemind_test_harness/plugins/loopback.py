@@ -79,14 +79,12 @@ class LoopbackNetworkProtocol(NetworkProtocol):
 
         # Wait for server to start and URL to be available
         max_wait = 10  # seconds
-        timeout_at = threading.Event()
-        timeout_at.wait(max_wait)
-
         for _ in range(int(max_wait * 100)):
             if self._url is not None:
                 _LOG.info(f"LoopbackNetworkProtocol listening at {self._url}")
                 return
-            threading.current_thread().join(0.01)
+            import time
+            time.sleep(0.01)
 
         raise RuntimeError("LoopbackNetworkProtocol failed to start server after 10s")
 

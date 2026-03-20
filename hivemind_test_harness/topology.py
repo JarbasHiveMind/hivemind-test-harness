@@ -34,6 +34,8 @@ from ovos_utils.fakebus import FakeBus
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 from hivemind_test_harness.node import MasterNode, SatelliteNode
 from hivemind_test_harness.plugins.agent import TestAgentProtocol
+from hivemind_test_harness.plugins.loopback import LoopbackNetworkProtocol
+from hivemind_test_harness.plugins.network import TestNetworkProtocol
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +100,20 @@ class TopologyBuilder:
 
     # --- builder API ---
 
-    def add_master(self, name: str, **kwargs) -> MasterNode:
-        node = MasterNode.create(name, **kwargs)
+    def add_master(self, name: str, use_loopback: bool = False, **kwargs) -> MasterNode:
+        """Add a master node with optional WebSocket loopback network.
+
+        Args:
+            name: Logical name of the master node.
+            use_loopback: If True, use LoopbackNetworkProtocol (real WebSocket server on
+                         localhost:0). If False (default), use TestNetworkProtocol (in-process
+                         wiring). Set to True for testing real clients (MicroPython, JS, etc.).
+            **kwargs: Forwarded to MasterNode.create() (require_crypto, handshake_enabled, etc.).
+
+        Returns:
+            MasterNode. Access loopback URL via master.network_protocol.url after start_all().
+        """
+        node = MasterNode.create(name, use_loopback=use_loopback, **kwargs)
         self._masters[name] = node
         return node
 
@@ -171,20 +185,38 @@ class TopologyBuilder:
     # --- lifecycle ---
 
     def start_all(self):
-        """Connect every satellite to its master in registration order."""
+        """Start all network protocols and connect every satellite to its master.
+
+        For each master, calls network_protocol.run() (which starts the network server
+        if applicable, e.g., LoopbackNetworkProtocol starts WebSocket server).
+        Then connects each satellite to its designated master.
+        """
+        # Start network protocols on all masters
+        for master in self._masters.values():
+            master.network_protocol.run()
+
+        # Connect satellites
         for sat_name, master_name, kwargs in self._connections:
             sat = self._satellites[sat_name]
             master = self._masters[master_name]
             sat.connect(master, **kwargs)
 
     def stop_all(self):
-        """Gracefully disconnect all satellites."""
+        """Gracefully disconnect all satellites and stop network protocols."""
         for sat in self._satellites.values():
             if sat._connection is not None:
                 try:
                     sat.disconnect()
                 except Exception:
                     pass
+
+        # Stop network protocols
+        for master in self._masters.values():
+            try:
+                if hasattr(master.network_protocol, 'stop'):
+                    master.network_protocol.stop()
+            except Exception:
+                pass
 
     # --- accessors ---
 

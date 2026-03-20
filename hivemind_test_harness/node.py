@@ -125,6 +125,7 @@ class MasterNode:
                require_crypto: bool = True,
                handshake_enabled: bool = True,
                agent_protocol: "TestAgentProtocol" = None,
+               use_loopback: bool = False,
                **kwargs) -> "MasterNode":
         identity = make_identity(name)
         db = InMemoryClientDatabase()
@@ -139,7 +140,13 @@ class MasterNode:
             handshake_enabled=handshake_enabled,
             peer=f"{name}:0.0.0.0",
         )
-        network = TestNetworkProtocol(hm_protocol=hm_proto)
+        # Use LoopbackNetworkProtocol (real WebSocket) if use_loopback=True,
+        # otherwise use TestNetworkProtocol (in-process wiring)
+        if use_loopback:
+            from hivemind_test_harness.plugins.loopback import LoopbackNetworkProtocol
+            network = LoopbackNetworkProtocol(hm_protocol=hm_proto)
+        else:
+            network = TestNetworkProtocol(hm_protocol=hm_proto)
         recorder = MessageRecorder(name=name)
         _instrument_master(hm_proto, recorder)
         return cls(name=name, identity=identity, db=db,
