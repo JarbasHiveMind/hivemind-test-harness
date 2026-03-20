@@ -75,8 +75,8 @@ class TestMicroPythonCrypto:
         assert isinstance(encrypted, str)
         assert encrypted != original_msg.decode()  # Should be different
 
-        # decrypt_json takes (cipher_str, key, cipher_type, encoding)
-        decrypted = decrypt_json(encrypted, key, "AES-GCM")
+        # decrypt_json takes (key, cipher_str, cipher_type, encoding)
+        decrypted = decrypt_json(key, encrypted, "AES-GCM")
         assert decrypted == original_msg
 
     def test_multiple_messages_different_keys(self):
@@ -115,7 +115,7 @@ class TestMicroPythonBinary:
 
         # Decode
         decoded = binary_decode(encoded)
-        assert decoded['type'] == 1  # BUS
+        assert decoded['msg_type'] == 1  # BUS
         assert decoded['payload'] == payload_bytes
 
     def test_broadcast_message_encode_decode(self):
@@ -133,7 +133,7 @@ class TestMicroPythonBinary:
         assert isinstance(encoded, bytes)
 
         decoded = binary_decode(encoded)
-        assert decoded['type'] == 3  # BROADCAST
+        assert decoded['msg_type'] == 3  # BROADCAST
 
     def test_binary_with_complex_metadata(self):
         """Handle metadata with nested structures."""
@@ -166,11 +166,11 @@ class TestMicroPythonBinary:
         ]
 
         for msg_type, payload in test_cases:
-            encoded = binary_encode(msg_type, 0, b"{}".encode(), payload)
+            encoded = binary_encode(msg_type, 0, b"{}", payload)
             assert isinstance(encoded, bytes), f"Failed for type {msg_type}"
 
             decoded = binary_decode(encoded)
-            assert decoded['type'] == msg_type
+            assert decoded['msg_type'] == msg_type
             assert decoded['payload'] == payload
 
 

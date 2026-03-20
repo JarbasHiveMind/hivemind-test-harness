@@ -15,6 +15,7 @@ import base64
 import logging
 import threading
 from dataclasses import dataclass, field
+from queue import Queue
 from typing import Any, Dict, List, Optional, Set
 
 import websockets
@@ -216,45 +217,57 @@ class LoopbackNetworkProtocol(NetworkProtocol):
             await websocket.close(code=4001, reason="Invalid API key")
             return
 
-        # Create HiveMindClientConnection
-        # send_msg will be called from the harness's synchronous code,
-        # so we wrap it to push the send onto the server's event loop
-        async def ws_send(payload: bytes, is_binary: bool = False):
-            """Send data to WebSocket. Called from harness synchronous code via threadsafe call."""
-            if is_binary:
-                await websocket.send(payload)
-            else:
-                # Assume it's already binary and send as-is
-                await websocket.send(payload)
+        # Create message queue for async/sync boundary crossing
+        # Sync code (harness) puts messages in queue, async code (WebSocket) reads and sends
+        msg_queue: Queue = Queue()
+        disconnect_event = threading.Event()
 
         def sync_send(payload: bytes):
             """Synchronous wrapper for send_msg (called from harness).
-            Routes call back to async ws_send via asyncio.run_coroutine_threadsafe.
+            Routes message through thread-safe queue to async WebSocket sender.
             """
-            if self._loop is None or self._loop.is_closed():
-                return
             try:
-                asyncio.run_coroutine_threadsafe(ws_send(payload), self._loop)
+                msg_queue.put_nowait(("message", payload))
             except Exception as e:
-                _LOG.exception(f"Error sending to WebSocket: {e}")
-
-        async def ws_close():
-            """Close WebSocket. Called from harness via threadsafe call."""
-            try:
-                await websocket.close()
-            except Exception:
-                pass
+                _LOG.exception(f"Error queueing message: {e}")
 
         def sync_disconnect():
             """Synchronous wrapper for disconnect (called from harness).
-            Routes call back to async ws_close.
+            Signals the async handler to close the WebSocket.
             """
-            if self._loop is None or self._loop.is_closed():
-                return
             try:
-                asyncio.run_coroutine_threadsafe(ws_close(), self._loop)
+                msg_queue.put_nowait(("disconnect", None))
             except Exception as e:
-                _LOG.exception(f"Error closing WebSocket: {e}")
+                _LOG.exception(f"Error queueing disconnect: {e}")
+
+        async def message_sender():
+            """Async task: continuously reads from queue and sends to WebSocket.
+
+            This decouples the sync harness code from the async WebSocket event loop
+            by using a thread-safe queue as the crossover point.
+            """
+            try:
+                while not disconnect_event.is_set():
+                    try:
+                        # Non-blocking queue check with 0.1s timeout to allow checking disconnect_event
+                        msg_type, payload = msg_queue.get(timeout=0.1)
+
+                        if msg_type == "message":
+                            await websocket.send(payload)
+                            _LOG.debug(f"Sent {len(payload)} bytes to {name}")
+                        elif msg_type == "disconnect":
+                            _LOG.debug(f"Received disconnect signal for {name}")
+                            break
+                    except Exception as e:
+                        # Queue is empty, continue checking
+                        pass
+            except Exception as e:
+                _LOG.exception(f"Message sender error for {name}: {e}")
+            finally:
+                try:
+                    await websocket.close()
+                except Exception:
+                    pass
 
         # Create the connection object with these callbacks
         conn = HiveMindClientConnection(
@@ -282,6 +295,9 @@ class LoopbackNetworkProtocol(NetworkProtocol):
         self._clients.append(conn)
 
         try:
+            # Start the message sender task (reads from queue, sends to WebSocket)
+            sender_task = asyncio.create_task(message_sender())
+
             # Notify harness of new client — synchronous, triggers HELLO+SHAKE
             self.hm_protocol.handle_new_client(conn)
 
@@ -293,11 +309,25 @@ class LoopbackNetworkProtocol(NetworkProtocol):
                 else:
                     _LOG.warning(f"Unexpected text message from {name}: {message}")
 
+            _LOG.info(f"Client {name} disconnected (WebSocket closed)")
+
         except websockets.exceptions.ConnectionClosed:
             _LOG.info(f"Client {name} disconnected")
         except Exception as e:
             _LOG.exception(f"Error handling client {name}: {e}")
         finally:
+            # Signal the sender task to stop
+            disconnect_event.set()
+
+            # Wait for sender task to finish
+            try:
+                if not sender_task.done():
+                    await asyncio.wait_for(sender_task, timeout=2)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                _LOG.debug(f"Sender task timeout/cancel for {name}")
+                if not sender_task.done():
+                    sender_task.cancel()
+
             # Notify harness of disconnection
             self.hm_protocol.handle_client_disconnected(conn)
             try:
