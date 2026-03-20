@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from hivemind_plugin_manager.protocols import BinaryDataHandlerProtocol
+from hivemind_bus_client.message import HiveMindBinaryPayloadType
 
 
 @dataclass
@@ -13,9 +14,11 @@ class BinaryCall:
     handler: str
     data: bytes
     meta: dict = field(default_factory=dict)
+    bin_type: Optional['HiveMindBinaryPayloadType'] = None
 
     def __repr__(self):
-        return f"BinaryCall({self.handler!r}, {len(self.data)} bytes, meta={self.meta})"
+        bin_type_name = f", type={self.bin_type.name}" if self.bin_type else ""
+        return f"BinaryCall({self.handler!r}, {len(self.data)} bytes, meta={self.meta}{bin_type_name})"
 
 
 @dataclass
@@ -26,19 +29,22 @@ class TestBinaryProtocol(BinaryDataHandlerProtocol):
         self.calls.append(BinaryCall(
             "microphone_input", bin_data,
             {"sample_rate": sample_rate, "sample_width": sample_width,
-             "peer": client.peer}))
+             "peer": client.peer},
+            bin_type=HiveMindBinaryPayloadType.RAW_AUDIO))
 
     def handle_stt_transcribe_request(self, bin_data, sample_rate, sample_width, lang, client):
         self.calls.append(BinaryCall(
             "stt_transcribe", bin_data,
             {"lang": lang, "sample_rate": sample_rate, "sample_width": sample_width,
-             "peer": client.peer}))
+             "peer": client.peer},
+            bin_type=HiveMindBinaryPayloadType.STT_AUDIO_TRANSCRIBE))
 
     def handle_stt_handle_request(self, bin_data, sample_rate, sample_width, lang, client):
         self.calls.append(BinaryCall(
             "stt_handle", bin_data,
             {"lang": lang, "sample_rate": sample_rate, "sample_width": sample_width,
-             "peer": client.peer}))
+             "peer": client.peer},
+            bin_type=HiveMindBinaryPayloadType.STT_AUDIO_HANDLE))
 
     def handle_numpy_image(self, bin_data, camera_id, client):
         self.calls.append(BinaryCall(

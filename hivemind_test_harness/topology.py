@@ -172,9 +172,19 @@ class TopologyBuilder:
 
         def _relaying_handle(hm_message, client, _orig=_orig_handle, _sat=sat):
             _orig(hm_message, client)
-            if (hm_message.msg_type in (HiveMessageType.ESCALATE, HiveMessageType.PROPAGATE)
-                    and _sat._master is not None):
-                _sat.send(HiveMessage(hm_message.msg_type, hm_message.payload))
+            # Relay BUS, BINARY, ESCALATE, and PROPAGATE messages upstream
+            if hm_message.msg_type in (HiveMessageType.BUS, HiveMessageType.BINARY, HiveMessageType.ESCALATE, HiveMessageType.PROPAGATE):
+                if _sat._master is not None:
+                    # Create relayed message with all relevant fields
+                    msg_kwargs = {
+                        "msg_type": hm_message.msg_type,
+                        "payload": hm_message.payload,
+                    }
+                    if hm_message.msg_type == HiveMessageType.BINARY:
+                        msg_kwargs["bin_type"] = hm_message.bin_type
+                        msg_kwargs["metadata"] = hm_message.metadata
+                    msg = HiveMessage(**msg_kwargs)
+                    _sat.send(msg)
 
         master.hm_protocol.handle_message = _relaying_handle
 
