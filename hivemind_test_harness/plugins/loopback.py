@@ -15,7 +15,7 @@ import base64
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import websockets
 import websockets.asyncio.server
@@ -44,7 +44,7 @@ class LoopbackNetworkProtocol(NetworkProtocol):
     _server: Optional[Any] = field(default=None, init=False, repr=False)
     _loop: Optional[asyncio.AbstractEventLoop] = field(default=None, init=False, repr=False)
     _thread: Optional[threading.Thread] = field(default=None, init=False, repr=False)
-    _clients: Set[Any] = field(default_factory=set, init=False, repr=False)
+    _clients: List[Any] = field(default_factory=list, init=False, repr=False)
 
     @property
     def url(self) -> str:
@@ -97,40 +97,62 @@ class LoopbackNetworkProtocol(NetworkProtocol):
         asyncio.set_event_loop(self._loop)
 
         try:
-            self._loop.run_until_complete(self._async_run_server())
+            # Run the server coroutine and keep it alive
+            self._server_task = self._loop.run_until_complete(self._start_server())
+            # Now run the event loop indefinitely (handles incoming connections)
+            self._loop.run_forever()
         except Exception as e:
             _LOG.exception(f"LoopbackNetworkProtocol server error: {e}")
         finally:
             try:
-                self._loop.close()
+                # Cancel the server task if still running
+                if hasattr(self, '_server_task') and self._server_task:
+                    self._server_task.cancel()
+                    try:
+                        self._loop.run_until_complete(self._server_task)
+                    except asyncio.CancelledError:
+                        pass
+                # Close all pending tasks
+                pending = asyncio.all_tasks(self._loop)
+                for task in pending:
+                    task.cancel()
+                self._loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             except Exception:
                 pass
-            self._loop = None
+            finally:
+                try:
+                    self._loop.close()
+                except Exception:
+                    pass
+                self._loop = None
 
-    async def _async_run_server(self):
-        """Async: start WebSocket server and handle connections."""
-        async def handler(websocket, path):
-            """Handle incoming WebSocket connection."""
+    async def _start_server(self):
+        """Start and manage the WebSocket server.
+
+        Returns a server object that can be managed from the thread.
+        """
+        async def handler(websocket):
+            """Handle incoming WebSocket connection.
+
+            Note: websockets v11+ changed signature from (websocket, path) to (websocket)
+            """
             await self._handle_client(websocket)
 
         # Start server on localhost:0 (OS assigns port)
-        async with websockets.asyncio.server.serve(
+        server = await websockets.asyncio.server.serve(
             handler,
             "127.0.0.1",
             0,  # Random OS-assigned port
-        ) as server:
-            # Extract the actual port and set URL
-            sockets = server.sockets
-            if sockets:
-                port = sockets[0].getsockname()[1]
-                self._url = f"ws://127.0.0.1:{port}/"
-                _LOG.info(f"LoopbackNetworkProtocol server started on {self._url}")
+        )
 
-            # Keep server running until stop() is called
-            try:
-                await asyncio.Event().wait()
-            except asyncio.CancelledError:
-                pass
+        # Extract the actual port and set URL
+        sockets = server.sockets
+        if sockets:
+            port = sockets[0].getsockname()[1]
+            self._url = f"ws://127.0.0.1:{port}/"
+            _LOG.info(f"LoopbackNetworkProtocol server started on {self._url}")
+
+        return server
 
     async def _handle_client(self, websocket):
         """Handle a single WebSocket client connection.
@@ -147,20 +169,43 @@ class LoopbackNetworkProtocol(NetworkProtocol):
             await websocket.close(code=1011, reason="No HiveMindListenerProtocol configured")
             return
 
-        # Extract authorization from query params
-        # Format: ?authorization=base64(name:key)
-        auth_header = websocket.request.headers.get("Authorization", "")
-        if not auth_header.startswith("Basic "):
-            await websocket.close(code=1008, reason="Missing or invalid Authorization header")
-            return
+        # Extract authorization from either:
+        # 1. Query parameter: ?authorization=base64(name:key) (MicroPython client)
+        # 2. Authorization header: Basic base64(name:key) (JS client)
 
+        name = None
+        key = None
+
+        # Try query parameter first (MicroPython style)
         try:
-            auth_b64 = auth_header.split(" ", 1)[1]
-            auth_decoded = base64.b64decode(auth_b64).decode("utf-8")
-            name, key = auth_decoded.split(":", 1)
-        except (ValueError, IndexError, UnicodeDecodeError) as e:
-            _LOG.warning(f"Invalid Authorization header: {e}")
-            await websocket.close(code=1008, reason="Invalid Authorization format")
+            query_string = websocket.request.path.split("?", 1)[1] if "?" in websocket.request.path else ""
+            if query_string:
+                import urllib.parse
+                params = urllib.parse.parse_qs(query_string)
+                auth_b64_list = params.get("authorization", [])
+                if auth_b64_list:
+                    auth_b64 = auth_b64_list[0]
+                    auth_decoded = base64.b64decode(auth_b64).decode("utf-8")
+                    name, key = auth_decoded.split(":", 1)
+                    _LOG.debug(f"Auth from query param: {name}")
+        except Exception as e:
+            _LOG.debug(f"Query param auth failed: {e}")
+
+        # If query param didn't work, try Authorization header (JS style)
+        if not name or not key:
+            auth_header = websocket.request.headers.get("Authorization", "")
+            if auth_header.startswith("Basic "):
+                try:
+                    auth_b64 = auth_header.split(" ", 1)[1]
+                    auth_decoded = base64.b64decode(auth_b64).decode("utf-8")
+                    name, key = auth_decoded.split(":", 1)
+                    _LOG.debug(f"Auth from header: {name}")
+                except (ValueError, IndexError, UnicodeDecodeError) as e:
+                    _LOG.warning(f"Invalid Authorization header: {e}")
+
+        # If still no auth, reject
+        if not name or not key:
+            await websocket.close(code=1008, reason="Missing or invalid authorization (query param or Authorization header)")
             return
 
         # Look up client in database
@@ -234,7 +279,7 @@ class LoopbackNetworkProtocol(NetworkProtocol):
         )
 
         # Track this client
-        self._clients.add(conn)
+        self._clients.append(conn)
 
         try:
             # Notify harness of new client — synchronous, triggers HELLO+SHAKE
@@ -255,16 +300,22 @@ class LoopbackNetworkProtocol(NetworkProtocol):
         finally:
             # Notify harness of disconnection
             self.hm_protocol.handle_client_disconnected(conn)
-            self._clients.discard(conn)
+            try:
+                self._clients.remove(conn)
+            except ValueError:
+                pass  # Already removed or not in list
 
     def stop(self):
         """Stop the WebSocket server and wait for thread to finish."""
         if self._loop is not None and not self._loop.is_closed():
+            # Stop the event loop
             self._loop.call_soon_threadsafe(self._loop.stop)
 
         if self._thread is not None:
+            # Wait for thread to finish (give it time to clean up)
             self._thread.join(timeout=5)
             self._thread = None
 
         self._url = None
+        self._server_task = None
         self._clients.clear()
