@@ -15,7 +15,6 @@ import base64
 import logging
 import threading
 from dataclasses import dataclass, field
-from queue import Queue
 from typing import Any, Dict, List, Optional, Set
 
 import websockets
@@ -217,50 +216,29 @@ class LoopbackNetworkProtocol(NetworkProtocol):
             await websocket.close(code=4001, reason="Invalid API key")
             return
 
-        # Create message queue for async/sync boundary crossing
-        # Sync code (harness) puts messages in queue, async code (WebSocket) reads and sends
-        msg_queue: Queue = Queue()
-        disconnect_event = threading.Event()
+        # Async queue for crossing the sync/async boundary.
+        # sync_send (called from protocol handlers) schedules put via
+        # call_soon_threadsafe; message_sender awaits get.
+        aqueue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
 
-        def sync_send(payload: bytes):
-            """Synchronous wrapper for send_msg (called from harness).
-            Routes message through thread-safe queue to async WebSocket sender.
-            """
-            try:
-                msg_queue.put_nowait(("message", payload))
-            except Exception as e:
-                _LOG.exception(f"Error queueing message: {e}")
+        def sync_send(payload: bytes, is_bin: bool = False):
+            """Queue a message for the async sender (called from sync protocol code)."""
+            loop.call_soon_threadsafe(aqueue.put_nowait, ("message", payload))
 
         def sync_disconnect():
-            """Synchronous wrapper for disconnect (called from harness).
-            Signals the async handler to close the WebSocket.
-            """
-            try:
-                msg_queue.put_nowait(("disconnect", None))
-            except Exception as e:
-                _LOG.exception(f"Error queueing disconnect: {e}")
+            """Signal the async sender to close the WebSocket."""
+            loop.call_soon_threadsafe(aqueue.put_nowait, ("disconnect", None))
 
         async def message_sender():
-            """Async task: continuously reads from queue and sends to WebSocket.
-
-            This decouples the sync harness code from the async WebSocket event loop
-            by using a thread-safe queue as the crossover point.
-            """
+            """Async task: reads from queue and sends to WebSocket."""
             try:
-                while not disconnect_event.is_set():
-                    try:
-                        # Non-blocking queue check with 0.1s timeout to allow checking disconnect_event
-                        msg_type, payload = msg_queue.get(timeout=0.1)
-
-                        if msg_type == "message":
-                            await websocket.send(payload)
-                            _LOG.debug(f"Sent {len(payload)} bytes to {name}")
-                        elif msg_type == "disconnect":
-                            _LOG.debug(f"Received disconnect signal for {name}")
-                            break
-                    except Exception as e:
-                        # Queue is empty, continue checking
-                        pass
+                while True:
+                    msg_type, payload = await aqueue.get()
+                    if msg_type == "message":
+                        await websocket.send(payload)
+                    elif msg_type == "disconnect":
+                        break
             except Exception as e:
                 _LOG.exception(f"Message sender error for {name}: {e}")
             finally:
@@ -303,11 +281,11 @@ class LoopbackNetworkProtocol(NetworkProtocol):
 
             # Process incoming messages from WebSocket
             async for message in websocket:
-                if isinstance(message, bytes):
-                    # HiveMind uses binary messages
-                    self.hm_protocol.handle_message(message, conn)
-                else:
-                    _LOG.warning(f"Unexpected text message from {name}: {message}")
+                try:
+                    decoded = conn.decode(message)
+                    self.hm_protocol.handle_message(decoded, conn)
+                except Exception as e:
+                    _LOG.warning(f"Failed to decode message from {name}: {e}")
 
             _LOG.info(f"Client {name} disconnected (WebSocket closed)")
 
@@ -316,15 +294,12 @@ class LoopbackNetworkProtocol(NetworkProtocol):
         except Exception as e:
             _LOG.exception(f"Error handling client {name}: {e}")
         finally:
-            # Signal the sender task to stop
-            disconnect_event.set()
-
-            # Wait for sender task to finish
+            # Signal the sender task to stop and wait
+            aqueue.put_nowait(("disconnect", None))
             try:
                 if not sender_task.done():
                     await asyncio.wait_for(sender_task, timeout=2)
             except (asyncio.TimeoutError, asyncio.CancelledError):
-                _LOG.debug(f"Sender task timeout/cancel for {name}")
                 if not sender_task.done():
                     sender_task.cancel()
 
