@@ -55,18 +55,18 @@ class TestPropagateFanOut:
 
         assert len(prop_calls) == 1, "propagate_callback should fire on master"
 
-    def test_master_emits_upstream_bus_message(self, star_topology):
+    def test_propagate_to_master_noop_without_upstream(self, star_topology):
+        """Top-level master has no upstream — propagate_to_master is a no-op."""
         b = star_topology
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
 
-        upstream_events = []
-        m0.agent_protocol.bus.on("hive.send.upstream", upstream_events.append)
-
+        # M0 has no upstream bound, so propagate_to_master does nothing.
+        # Verify no error and the callback still fires.
+        calls = []
+        m0.hm_protocol.propagate_callback = calls.append
         s0.send(_propagate_msg())
-
-        assert len(upstream_events) == 1, \
-            "Master should emit hive.send.upstream for PROPAGATE (to pass to its own master)"
+        assert len(calls) == 1, "propagate_callback must fire even without upstream"
 
 
 class TestPropagateCannotPropagate:

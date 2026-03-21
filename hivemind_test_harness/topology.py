@@ -165,12 +165,10 @@ class TopologyBuilder:
         self._masters[f"{name}_master"] = master
         self._connections.append((f"{name}_sat", upstream.name, connect_kwargs))
 
-        # No manual relay wiring needed: both sides share the same bus.
-        # - Upstream: HiveMindSlaveInternalProtocol listens for hive.send.upstream
-        #   on the shared bus and forwards to the upstream master via sat.send()
-        # - Downstream: HiveMindSlaveProtocol.handle_broadcast/propagate emits
-        #   hive.send.downstream on the shared bus, which TestAgentProtocol.handle_send
-        #   picks up and routes to self.clients (downstream satellites)
+        # Bind the satellite's slave protocol as the upstream connection.
+        # This registers propagate_from_master / broadcast_from_master handlers
+        # and enables escalate_to_master / propagate_to_master forwarding.
+        master.hm_protocol.bind_upstream(sat.slave_protocol)
 
         relay = RelayNode(name=name, upstream=sat, listener=master, bus=shared_bus)
         self._relays[name] = relay
