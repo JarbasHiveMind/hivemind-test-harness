@@ -18,17 +18,19 @@ and related features. **326 tests across 32 files, all passing.**
 | ESCALATE | `escalate` | satellite→masters-only | Forward up authority chain | ✅ tested | `test_escalate.py` |
 | INTERCOM | `intercom` | satellite→master→target-satellite | RSA-encrypted peer-to-peer routing | ✅ tested | `test_intercom.py` |
 | PING | `ping` | both | Network topology discovery | ✅ tested | `test_ping_pong.py` (49 tests) |
-| QUERY | `query` | upstream | Like ESCALATE but stops at first responder | ⚠️ not implemented | `test_unimplemented_types.py` |
-| CASCADE | `cascade` | both | Like PROPAGATE but expects responses | ⚠️ not implemented | `test_unimplemented_types.py` |
+| QUERY | `query` | upstream+response | Like ESCALATE but stops at first responder | ✅ tested | `test_query.py` (6 tests) |
+| CASCADE | `cascade` | both+response | Like PROPAGATE but expects responses from all | ✅ tested | `test_cascade.py` (8 tests) |
 | RENDEZVOUS | `rendezvous` | reserved | Rendezvous-node peer discovery | ⚠️ not implemented | `test_unimplemented_types.py` |
 | THIRDPRTY | `3rdparty` | both | User-land free-form message | ✅ tested | `test_propagate.py`, `test_unimplemented_types.py` |
 | BINARY | `bin` | satellite→master | Binary data container (7 subtypes) | ✅ tested | `test_binary.py`, `test_binary_flow.py`, `test_binarize_e2e.py` |
 
-### Not-yet-implemented types (QUERY / CASCADE / RENDEZVOUS)
+### Not-yet-implemented types (RENDEZVOUS)
 
-These three types are defined in `HiveMessageType` but `HiveMindListenerProtocol.handle_message`
-routes them to `handle_unknown_message()` (an empty stub). The stub tests in
-`test_unimplemented_types.py` verify no crash occurs and the master records the inbound message.
+RENDEZVOUS is defined in `HiveMessageType` but `HiveMindListenerProtocol.handle_message`
+routes it to `handle_unknown_message()` (an empty stub). The stub test in
+`test_unimplemented_types.py` verifies no crash occurs and the master records the inbound message.
+
+QUERY and CASCADE are now fully implemented with dedicated handlers and test suites.
 
 ---
 
@@ -82,6 +84,9 @@ routes them to `handle_unknown_message()` (an empty stub). The stub tests in
 | PROPAGATE crosses 1 relay | ✅ tested | `test_propagate.py::TestPropagateChain` |
 | PROPAGATE crosses 2 relays | ✅ tested | `test_routing.py::TestDeepChainPropagate` |
 | BROADCAST downstream through relay | ⚠️ not wired | Slave protocol's `handle_broadcast` does not forward to downstream relay masters; no test |
+| QUERY through relay (no answer → escalate) | ✅ tested | `test_query.py::TestQueryEscalateOnTimeout::test_query_escalates_through_relay` |
+| CASCADE through relay | ✅ tested | `test_cascade.py::TestCascadeRelayForwarding::test_cascade_reaches_top_master` |
+| CASCADE select callback | ✅ tested | `test_cascade.py::TestCascadeSelectCallback` (2 tests) |
 | BUS upstream through relay | ✅ implicit | ESCALATE/PROPAGATE cover cross-boundary routing |
 
 ---
@@ -110,6 +115,8 @@ routes them to `handle_unknown_message()` (an empty stub). The stub tests in
 | `test_binary.py` | 7 | All 7 binary payload types |
 | `test_broadcast.py` | 6 | Admin/non-admin broadcast, target_site_id |
 | `test_bus.py` | 9 | BUS inject, reply, allowed_types, multi-satellite |
+| `test_query.py` | 6 | QUERY local answer, escalate on timeout, relay chain, ACL, response routing |
+| `test_cascade.py` | 8 | CASCADE responses, star topology forwarding, relay, ACL, disambiguation |
 | `test_embedded_clients.py` | 11 | Embedded (ESP32/MicroPython) client protocol |
 | `test_embedded_comprehensive.py` | 16 | Comprehensive embedded client scenarios |
 | `test_embedded_interop.py` | 10 | Embedded ↔ standard client interoperability |
