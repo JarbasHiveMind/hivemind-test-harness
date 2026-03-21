@@ -258,3 +258,75 @@ def asymmetric_hive_topology():
     b.start_all()
     yield b
     b.stop_all()
+
+
+# ---------------------------------------------------------------------------
+# Shared E2E helpers — skill IDs and utilities
+# ---------------------------------------------------------------------------
+
+SKILL_HELLO = "ovos-skill-hello-world.openvoiceos"
+SKILL_DATETIME = "ovos-skill-date-time.openvoiceos"
+SKILL_PERSONAL = "ovos-skill-personal.openvoiceos"
+SKILL_NAPTIME = "ovos-skill-naptime.openvoiceos"
+SKILL_FALLBACK = "ovos-skill-fallback-unknown.openvoiceos"
+SKILL_VOLUME = "ovos-skill-volume.openvoiceos"
+SKILL_EASTER_EGGS = "ovos-skill-easter-eggs.openvoiceos"
+SKILL_SPELLING = "ovos-skill-spelling.openvoiceos"
+SKILL_PARROT = "ovos-skill-parrot.openvoiceos"
+SKILL_IP = "ovos-skill-ip.openvoiceos"
+SKILL_COUNT = "ovos-skill-count.openvoiceos"
+SKILL_RANDOMNESS = "ovos-skill-randomness.openvoiceos"
+SKILL_DICTATION = "ovos-skill-dictation.openvoiceos"
+
+
+def skill_missing(*skill_ids: str) -> bool:
+    """Return True if ANY of the given skills are not installed."""
+    try:
+        from ovos_plugin_manager.skills import find_skill_plugins
+        plugins = find_skill_plugins()
+        return any(sid not in plugins for sid in skill_ids)
+    except Exception:
+        return True
+
+
+def make_utterance(text: str, pipeline: list, session_id: str,
+                   lang: str = "en-US") -> "Message":
+    """Build a recognizer_loop:utterance Message with a specific pipeline."""
+    from ovos_bus_client.message import Message
+    from ovos_bus_client.session import Session
+    sess = Session(session_id)
+    sess.lang = lang
+    sess.pipeline = pipeline
+    return Message(
+        "recognizer_loop:utterance",
+        {"utterances": [text], "lang": lang},
+        {"session": sess.serialize(), "source": "sat", "destination": "master"},
+    )
+
+
+def assert_types_in_order(messages: list, *expected_types: str) -> None:
+    """Assert every expected_type appears in messages in order."""
+    types = [m.msg_type for m in messages]
+    pos = 0
+    for t in expected_types:
+        found = next((i for i in range(pos, len(types)) if types[i] == t), None)
+        assert found is not None, (
+            f"Expected message type '{t}' not found after position {pos}.\n"
+            f"Captured sequence: {types}"
+        )
+        pos = found + 1
+
+
+def wait_for_satellite_message(satellite, msg_type: str, timeout: float = 10.0):
+    """Block until msg_type arrives on satellite.internal_bus. Returns the message or None."""
+    import threading
+    result = []
+    event = threading.Event()
+
+    def _on_msg(msg):
+        result.append(msg)
+        event.set()
+
+    satellite.internal_bus.once(msg_type, _on_msg)
+    event.wait(timeout=timeout)
+    return result[0] if result else None
