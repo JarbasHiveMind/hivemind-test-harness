@@ -192,7 +192,6 @@ class TestHiveMessageBusClientBusMessages:
 class TestHiveMessageBusClientBinaryData:
     """Binary data transfer (audio frames, TTS)."""
 
-    @pytest.mark.xfail(reason="Binary frame decode through loopback needs investigation")
     def test_send_raw_audio_to_hub(self):
         """Client sends RAW_AUDIO binary, hub's binary protocol receives it."""
         from hivemind_bus_client.message import HiveMindBinaryPayloadType
@@ -207,7 +206,10 @@ class TestHiveMessageBusClientBinaryData:
             client.connect(site_id="loopback-site")
             client.wait_for_handshake(timeout=10)
 
-            # Send binary audio frame
+            # Send binary audio frame.
+            # NOTE: binary_type must be passed explicitly to emit() because
+            # HiveMessageBusClient.emit() uses its own binary_type parameter
+            # for bitstring serialization, not message.bin_type.
             audio_data = b"\x00\x01\x02\x03" * 100  # 400 bytes of fake audio
             bin_msg = HiveMessage(
                 HiveMessageType.BINARY,
@@ -215,7 +217,7 @@ class TestHiveMessageBusClientBinaryData:
                 bin_type=HiveMindBinaryPayloadType.RAW_AUDIO,
                 metadata={"sample_rate": 16000, "sample_width": 2},
             )
-            client.emit(bin_msg)
+            client.emit(bin_msg, binary_type=HiveMindBinaryPayloadType.RAW_AUDIO)
 
             time.sleep(1)
 

@@ -84,11 +84,6 @@ except ImportError:
     _HAVE_Z85B91 = False
 
 
-def _is_z85p(encoding_name: str) -> bool:
-    """Check if an encoding name refers to Z85P."""
-    return "Z85P" in encoding_name
-
-
 # ---------------------------------------------------------------------------
 # TestHsubInterop
 # ---------------------------------------------------------------------------
@@ -155,8 +150,6 @@ class TestEncryptionInterop:
         server_encoding: SupportedEncodings,
     ) -> None:
         """MicroPython encrypts, production server decrypts."""
-        if _is_z85p(encoding_name):
-            pytest.xfail("Z85P decode bug in upstream z85base91")
         ct_json = encrypt_json(
             TEST_KEY,
             TEST_PLAINTEXT.encode("utf-8"),
@@ -189,8 +182,6 @@ class TestEncryptionInterop:
         server_encoding: SupportedEncodings,
     ) -> None:
         """Production server encrypts, MicroPython decrypts."""
-        if _is_z85p(encoding_name):
-            pytest.xfail("Z85P decode bug in upstream z85base91")
         ct_json = encrypt_as_json(
             TEST_KEY,
             TEST_PLAINTEXT,

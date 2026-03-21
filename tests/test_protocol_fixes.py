@@ -73,11 +73,7 @@ class TestIntercomInnerDelivery:
     master's agent bus.  Before the fix, dispatch checked message.msg_type
     (always INTERCOM) instead of inner.msg_type, so the BUS was silently dropped."""
 
-    @pytest.mark.skip(
-        reason="RSA PKCS1-OAEP limits plaintext to ~214 bytes; a serialised HiveMessage "
-               "exceeds this. The INTERCOM dispatch logic is covered by unit tests in "
-               "hivemind-websocket-client and by test_unencrypted_intercom_bus_delivered."
-    )
+    @pytest.mark.skip(reason="INTERCOM is an unfinished feature — not used in production yet")
     def test_encrypted_intercom_delivers_inner_bus(self, minimal_topology):
         """RSA-encrypted INTERCOM(BUS) → master injects the BUS on agent bus."""
         pass
