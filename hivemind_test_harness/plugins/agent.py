@@ -82,11 +82,12 @@ class TestAgentProtocol(AgentProtocol):
 
         hmessage = HiveMessage(msg_type, payload=payload, target_peers=[peer])
 
-        if msg_type in [HiveMessageType.PROPAGATE, HiveMessageType.BROADCAST]:
+        if msg_type in [HiveMessageType.PROPAGATE, HiveMessageType.BROADCAST,
+                        HiveMessageType.CASCADE]:
             # Broadcast to all connected satellites
             for p, client in self.clients.items():
                 client.send(hmessage)
-        elif msg_type == HiveMessageType.ESCALATE:
+        elif msg_type in [HiveMessageType.ESCALATE, HiveMessageType.QUERY]:
             # Only slaves can escalate; ignore silently when we are the master
             pass
         elif peer:
