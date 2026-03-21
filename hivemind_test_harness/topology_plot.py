@@ -147,13 +147,16 @@ def plot_topology_builder(
 ) -> str:
     """Render the static wiring of a :class:`TopologyBuilder` to a PNG.
 
+    Relay nodes (``X_sat`` + ``X_master``) are merged into a single graph
+    node labelled ``X (relay)`` so the plot reflects the physical topology
+    — one device, not two disconnected halves.
+
     Node colours:
-      * **blue** — plain master
-      * **orange** — relay node (satellite side shown as light orange, master
-        side as darker orange)
+      * **blue** — root master (no upstream connection)
+      * **orange** — relay node (satellite *and* master)
       * **green** — leaf satellite
 
-    Edges point **master → satellite** (downstream direction).
+    Edges point **upstream → downstream** (master → satellite direction).
 
     Args:
         builder: A :class:`~hivemind_test_harness.topology.TopologyBuilder`
@@ -178,35 +181,58 @@ def plot_topology_builder(
             if f"{base}_master" in master_names:
                 relay_bases.add(base)
 
-    def _role(name: str) -> str:
-        base = name.replace("_sat", "").replace("_master", "")
-        if base in relay_bases:
-            return "relay_sat" if name.endswith("_sat") else "relay_mst"
-        return "master" if name in master_names else "satellite"
-
-    def _short_label(name: str) -> str:
+    # Build a mapping from raw names to canonical (merged) names.
+    # R1_sat → R1, R1_master → R1, everything else stays as-is.
+    def _canonical(name: str) -> str:
         if name.endswith("_sat"):
-            return name[:-4] + "\n↑(sat)"
+            base = name[:-4]
+            if base in relay_bases:
+                return base
         if name.endswith("_master"):
-            return name[:-7] + "\n↓(mst)"
+            base = name[:-7]
+            if base in relay_bases:
+                return base
         return name
 
-    G = nx.DiGraph()
-    for n in master_names | sat_names:
-        G.add_node(n, role=_role(n))
+    def _role(canon: str) -> str:
+        if canon in relay_bases:
+            return "relay_sat"  # orange
+        if canon in master_names:
+            return "master"
+        return "satellite"
 
-    # Edges: master_name → sat_name (from builder._connections)
+    G = nx.DiGraph()
+
+    # Add all canonical nodes
+    all_raw = master_names | sat_names
+    canonical_nodes: set = set()
+    for n in all_raw:
+        c = _canonical(n)
+        if c not in canonical_nodes:
+            canonical_nodes.add(c)
+            G.add_node(c, role=_role(c))
+
+    # Add edges using canonical names, deduplicating
+    seen_edges: set = set()
     for sat_name, master_name, _ in builder._connections:
-        G.add_edge(master_name, sat_name)
+        src = _canonical(master_name)
+        dst = _canonical(sat_name)
+        if src != dst and (src, dst) not in seen_edges:
+            G.add_edge(src, dst)
+            seen_edges.add((src, dst))
+
+    def _label(canon: str) -> str:
+        if canon in relay_bases:
+            return f"{canon}\n(relay)"
+        return canon
 
     node_colours = [_PALETTE.get(_role(n), _PALETTE["satellite"])
                     for n in G.nodes()]
-    node_labels  = {n: _short_label(n) for n in G.nodes()}
+    node_labels  = {n: _label(n) for n in G.nodes()}
 
     legend_patches = [
         mpatches.Patch(color=_PALETTE["master"],    label="Master"),
-        mpatches.Patch(color=_PALETTE["relay_sat"], label="Relay (sat side)"),
-        mpatches.Patch(color=_PALETTE["relay_mst"], label="Relay (master side)"),
+        mpatches.Patch(color=_PALETTE["relay_sat"], label="Relay"),
         mpatches.Patch(color=_PALETTE["satellite"], label="Satellite"),
     ]
 

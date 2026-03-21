@@ -8,6 +8,8 @@ wires their connections before tests run.
 
 ## T1 · Minimal (1 Master, 1 Satellite)
 
+![T1 Minimal](img/t1_minimal.png)
+
 ```
 M0
 └── S0
@@ -28,6 +30,8 @@ M0
 ---
 
 ## T2 · Star (1 Master, N Satellites)
+
+![T2 Star](img/t2_star.png)
 
 ```
        M0
@@ -51,9 +55,11 @@ M0
 
 ## T3 · Chain (Linear Hierarchy)
 
+![T3 Chain](img/t3_chain.png)
+
 ```
 M0
-└── M1  (M1 is both satellite of M0 and master to S0)
+└── R1  (R1 is both satellite of M0 and master to S0)
     └── S0
 ```
 
@@ -191,16 +197,24 @@ M0
 
 ---
 
-## Topology Fixture Summary
+## Implemented Topology Fixtures (conftest.py)
 
-| ID | Name | Masters | Satellites | Max Depth |
-|---|---|---|---|---|
-| T1 | Minimal | 1 | 1 | 1 |
-| T2 | Star | 1 | 3–10 | 1 |
-| T3 | Chain | N | 1 | N |
-| T4 | Hierarchical Star | 4 | 6 | 2 |
-| T5 | Diamond | 2 | 1 | 1 |
-| T6 | Mesh | 3 | 9 | 1 |
-| T7 | Stress Star | 1 | 50 | 1 |
-| T8 | Mixed Protocol | 1 | 3 | 1 |
-| T9 | Relay | 2 | 3 | 2 |
+| Fixture | Nodes | Depth | Plot |
+|---|---|---|---|
+| `minimal_topology` | M0 + S0 | 1 | ![](img/t1_minimal.png) |
+| `star_topology` | M0 + S0,S1,S2 | 1 | ![](img/t2_star.png) |
+| `admin_star_topology` | M0 + S0(admin),S1,S2 | 1 | ![](img/t2a_admin_star.png) |
+| `chain_topology` | M0 → R1 → S0 | 2 | ![](img/t3_chain.png) |
+| `deep_chain_topology` | M0 → R1 → R2 → S0 | 3 | ![](img/t3a_deep_chain.png) |
+| `huge_hive_topology` | M0 + 10 relays + 37 leaves | 2 | (too large for inline) |
+| `chaotic_hive_topology` | M0 + 3 relays + 7 leaves | 3 | ![](img/t5_chaotic.png) |
+| `asymmetric_hive_topology` | M0 + 10-deep chain + 3 short | 11 | ![](img/t6_asymmetric.png) |
+
+## Planned Topologies (no fixture yet)
+
+| Name | Description |
+|---|---|
+| Diamond | Satellite with two upstream masters |
+| Mesh | N masters × M satellites cross-linked |
+| Stress Star | 1 master + 50+ satellites |
+| Mixed Protocol | Heterogeneous protocol versions |
