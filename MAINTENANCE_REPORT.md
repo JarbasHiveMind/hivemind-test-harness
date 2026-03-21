@@ -31,6 +31,14 @@
 | `tests/test_e2e_get_response.py` | 7 | multi-turn get_response() |
 | `tests/test_e2e_stop.py` | 7 | stop command + ping/pong |
 | `tests/test_e2e_ask_yesno_selection.py` | 10 | ask_yesno, ask_selection |
+| `tests/test_e2e_ocp.py` | 5 | OCP search results + track info |
+| `tests/test_e2e_shared_bus.py` | 4 | shared_bus=True mirroring |
+| `tests/test_e2e_admin_broadcast.py` | 4 | admin broadcast + rejection |
+| `tests/test_e2e_relay_acl.py` | 5 | relay ACL stacking |
+| `tests/test_e2e_lang.py` | 5 | lang propagation + mismatch |
+| `tests/test_e2e_converse_advanced.py` | 7 | cancel, timeout, concurrent, dictation |
+| `tests/test_e2e_scheduler.py` | 4 | schedule_event() callback |
+| `tests/test_e2e_binary_skill.py` | 5 | binary audio + skill response |
 
 ---
 

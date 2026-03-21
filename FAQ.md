@@ -148,6 +148,27 @@ HiveMind tracks the originating satellite via `message.context["destination"]`. 
 ### What is SatelliteAutoResponder?
 A test helper that listens for `speak` messages with `expect_response=True` on the satellite's `internal_bus` and automatically sends predefined responses back through HiveMind. Used for testing multi-turn dialogs (get_response, ask_yesno, ask_selection).
 
+### How does shared_bus mode work with real skills?
+Satellites created with `shared_bus=True` passively mirror all internal bus events upstream as `SHARED_BUS` HiveMessages. When a skill response (speak) arrives on a shared satellite's bus, the master sees it mirrored back. Normal satellites do NOT mirror. Tested in `test_e2e_shared_bus.py`.
+
+### How does relay ACL stacking work?
+Blacklists apply at each hop. If relay R1 has `skill_blacklist=["hello-world"]` as a client of M0, all leaf satellites behind R1 inherit that restriction. R1's ACL for S0 and M0's ACL for R1 are applied independently.
+
+### How do OCP messages route through HiveMind?
+OCP messages (`ovos.common_play.query.response`, `ovos.common_play.track_info`) are standard bus messages — they route through HiveMind like `speak`. Tested via injected `OCPTestSkill`.
+
+### How does schedule_event() work through HiveMind?
+Skills call `schedule_event(handler, delay)` on the hub. The callback fires on the hub's bus after the delay. Any `speak` from the callback routes back to the satellite via HiveMind's reverse routing. Tested with injected `SchedulerTestSkill`.
+
+### How does binary audio relate to skill responses?
+Satellite sends `BINARY(RAW_AUDIO)` → master's binary protocol handles it → STT transcribes → `recognizer_loop:utterance` → skill matches → speak routes back. In tests, STT is not available so binary delivery and utterance injection are tested as linked steps.
+
+### How does the dictation skill test converse + stop?
+Dictation activates converse mode — all subsequent utterances are captured (not intent-matched). Stop deactivates it. This tests the most complex OVOS skill interaction: a skill that hijacks the entire conversation pipeline through HiveMind.
+
+### Does language affect intent matching through HiveMind?
+Yes. The session `lang` propagates through HiveMind. English-only skills (hello-world) won't match German utterances sent with `lang="de-DE"`.
+
 ### What shared helpers are in conftest.py?
 - `skill_missing(*skill_ids)` — check if skills are installed (for skipif)
 - `make_utterance(text, pipeline, session_id, lang)` — build correctly-formed utterance messages

@@ -277,6 +277,79 @@ This is enforced by HiveMind's peer tracking in `message.context["destination"]`
 
 ---
 
+## OCP (Open Common Play)
+
+OCP skills use `@ocp_search()` decorators to handle media queries. They emit `ovos.common_play.query.response` with search results and `ovos.common_play.track_info` with playback metadata. These messages route through HiveMind like any other bus message.
+
+Tested via an injected `OCPTestSkill` that emits OCP messages when triggered, verifying they arrive on the satellite bus with correct data.
+
+---
+
+## Shared Bus Mode
+
+Satellites created with `shared_bus=True` passively mirror **all** internal bus traffic upstream as `SHARED_BUS` HiveMessages. This gives the master visibility into satellite-side events (e.g., local sensor data, PHAL events).
+
+```
+Satellite (shared_bus=True)         Master
+┌────────────────────┐             ┌──────────────┐
+│ internal_bus.emit  │             │              │
+│   ("sensor.data")  │─SHARED_BUS─►│ shared_bus   │
+│                    │             │  _callback() │
+└────────────────────┘             └──────────────┘
+```
+
+Normal (non-shared) satellites do NOT mirror bus events.
+
+---
+
+## Admin Broadcast
+
+Admin satellites can broadcast messages to all sibling satellites. Non-admin broadcasts are rejected and the offending client is disconnected.
+
+---
+
+## Relay ACL Stacking
+
+When a message traverses a relay chain (S0 → R1 → M0), blacklists are applied at **each hop**:
+
+1. R1 applies its ACL for S0 (as S0's direct master)
+2. M0 applies its ACL for R1 (as R1's master)
+
+This means: if R1 has `skill_blacklist=["hello-world"]` as a client of M0, then **all** satellites behind R1 inherit that restriction, even if they have no individual blacklists.
+
+---
+
+## Language-Dependent Intent Matching
+
+The session `lang` field propagates through HiveMind. Skills only match intents for languages they have locale files for. An English-only skill (hello-world) won't match German utterances sent with `lang="de-DE"`.
+
+---
+
+## Event Scheduler
+
+Skills call `self.schedule_event(handler, delay)` to fire a callback after a delay. The scheduler runs on the hub's MiniCroft bus via `mycroft.scheduler.schedule_event`. When the callback fires, any `speak` or bus messages it emits route back through HiveMind to the originating satellite.
+
+---
+
+## Binary Audio + Skill Pipeline
+
+The full audio pipeline: satellite sends `BINARY(RAW_AUDIO)` → master's binary protocol dispatches to `handle_microphone_input()` → STT engine transcribes → `recognizer_loop:utterance` emitted → skill matches → `speak` routes back.
+
+In tests, actual STT is not available, so binary delivery and utterance injection are tested as linked steps.
+
+---
+
+## Dictation Skill (Converse + Stop)
+
+The dictation skill combines converse mode with stop capability:
+1. "start dictation" → activates converse mode (`can_converse()` returns True)
+2. All subsequent utterances are captured by `converse()` instead of intent matching
+3. "stop dictation" → deactivates converse, saves captured text
+
+This tests the most complex OVOS skill interaction pattern through HiveMind: a skill that hijacks the entire conversation pipeline.
+
+---
+
 ## Test File Reference
 
 | File | Tests | Skills | Pattern |
@@ -292,6 +365,14 @@ This is enforced by HiveMind's peer tracking in `message.context["destination"]`
 | `test_e2e_get_response.py` | 7 | randomness, volume | Multi-turn get_response() |
 | `test_e2e_stop.py` | 7 | count, hello-world | Stop command + ping/pong |
 | `test_e2e_ask_yesno_selection.py` | 10 | easter-eggs + injected | ask_yesno, ask_selection |
+| `test_e2e_ocp.py` | 5 | injected OCPTestSkill | OCP search results + track info |
+| `test_e2e_shared_bus.py` | 4 | hello-world | shared_bus=True mirroring |
+| `test_e2e_admin_broadcast.py` | 4 | hello-world | Admin broadcast + rejection |
+| `test_e2e_relay_acl.py` | 5 | hello-world, date-time | Relay ACL stacking |
+| `test_e2e_lang.py` | 5 | hello-world + injected | Lang propagation + mismatch |
+| `test_e2e_converse_advanced.py` | 7 | randomness, dictation + injected | Cancel, timeout, concurrent, dictation |
+| `test_e2e_scheduler.py` | 4 | injected SchedulerTestSkill | schedule_event() callback |
+| `test_e2e_binary_skill.py` | 5 | hello-world | Binary audio + skill response |
 
 ---
 

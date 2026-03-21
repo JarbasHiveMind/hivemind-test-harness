@@ -277,6 +277,7 @@ SKILL_IP = "ovos-skill-ip.openvoiceos"
 SKILL_COUNT = "ovos-skill-count.openvoiceos"
 SKILL_RANDOMNESS = "ovos-skill-randomness.openvoiceos"
 SKILL_DICTATION = "ovos-skill-dictation.openvoiceos"
+SKILL_TUNEIN = "ovos-skill-tunein.openvoiceos"
 
 
 def skill_missing(*skill_ids: str) -> bool:
