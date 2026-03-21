@@ -31,7 +31,6 @@ from typing import Dict, List, Optional, Tuple
 
 from ovos_utils.fakebus import FakeBus
 
-from hivemind_bus_client.message import HiveMessage, HiveMessageType
 from hivemind_test_harness.node import MasterNode, SatelliteNode
 from hivemind_test_harness.plugins.agent import TestAgentProtocol
 from hivemind_test_harness.plugins.loopback import LoopbackNetworkProtocol
@@ -166,20 +165,12 @@ class TopologyBuilder:
         self._masters[f"{name}_master"] = master
         self._connections.append((f"{name}_sat", upstream.name, connect_kwargs))
 
-        # Wire native relay: master forwards ESCALATE/PROPAGATE upstream via sat,
-        # and receives BROADCAST/PROPAGATE from upstream to forward downstream.
-        master.hm_protocol.upstream = sat.send
-
-        # When the relay's satellite side receives BROADCAST or PROPAGATE from
-        # upstream, forward to all downstream clients via the master protocol.
-        sat.shim.emitter.on(
-            HiveMessageType.BROADCAST,
-            lambda msg, _m=master: _m.hm_protocol.handle_upstream_message(msg),
-        )
-        sat.shim.emitter.on(
-            HiveMessageType.PROPAGATE,
-            lambda msg, _m=master: _m.hm_protocol.handle_upstream_message(msg),
-        )
+        # No manual relay wiring needed: both sides share the same bus.
+        # - Upstream: HiveMindSlaveInternalProtocol listens for hive.send.upstream
+        #   on the shared bus and forwards to the upstream master via sat.send()
+        # - Downstream: HiveMindSlaveProtocol.handle_broadcast/propagate emits
+        #   hive.send.downstream on the shared bus, which TestAgentProtocol.handle_send
+        #   picks up and routes to self.clients (downstream satellites)
 
         relay = RelayNode(name=name, upstream=sat, listener=master, bus=shared_bus)
         self._relays[name] = relay
