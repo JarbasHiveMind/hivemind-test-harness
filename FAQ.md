@@ -175,3 +175,6 @@ Yes. The session `lang` propagates through HiveMind. English-only skills (hello-
 - `assert_types_in_order(messages, *types)` — assert message types appear in sequence
 - `wait_for_satellite_message(satellite, msg_type, timeout)` — block until message arrives on satellite bus
 - Skill ID constants: `SKILL_HELLO`, `SKILL_DATETIME`, `SKILL_VOLUME`, `SKILL_PERSONAL`, `SKILL_NAPTIME`, `SKILL_FALLBACK`, `SKILL_EASTER_EGGS`, `SKILL_SPELLING`, `SKILL_IP`, `SKILL_COUNT`, `SKILL_PARROT`, `SKILL_RANDOMNESS`, `SKILL_DICTATION`
+
+### What does `test_route_metadata.py` cover?
+8 integration tests (TS-ROUTE-HOP-01..08): BUS hop data, ESCALATE/PROPAGATE through relays, route preservation through `_unpack_message`, hop structure validation, QUERY/CASCADE response route carriage, PING route feeding HiveMapper.
