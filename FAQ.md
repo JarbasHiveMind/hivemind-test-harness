@@ -92,3 +92,65 @@ Yes. MiniCroft trains Padatious intent models on first run. Subsequent runs use 
 
 ### How do I test for `complete_intent_failure` without skill interference?
 Use `OvoscopeAgentProtocol(skill_ids=[])` and ensure `ovos-persona-pipeline-plugin` is not intercepting utterances.
+
+---
+
+## E2E Skill Tests (81 tests)
+
+### How do I run the E2E skill tests?
+```bash
+cd "HiveMind Workspace/hivemind-test-harness"
+uv run pytest tests/test_e2e_*.py -v --timeout=300
+```
+Tests auto-skip if required skills are not installed.
+
+### What skills do I need to install?
+```bash
+for skill in hello-world date-time personal naptime volume easter-eggs spelling \
+             ip count parrot randomness fallback-unknown; do
+    uv pip install -e "../OpenVoiceOS Workspace/Skills/ovos-skill-${skill}"
+done
+```
+
+### How does get_response() work through HiveMind?
+The skill calls `get_response("dialog")` → enables `response_mode` on the session → speaks a question with `expect_response=True`. HiveMind routes the speak to the satellite. When the satellite sends the next utterance with the same `session_id`, HiveMind routes it back to the hub. MiniCroft's converse pipeline intercepts it (because `response_mode` is active) and delivers it to the skill's waiting `get_response()`. **Requirement:** pipeline must include `"ovos-converse-pipeline-plugin"`.
+
+### How does ask_yesno() differ from get_response()?
+`ask_yesno()` wraps `get_response()` — it speaks the question, gets the response, then passes it through a `YesNoSolver` plugin to normalize to `"yes"`, `"no"`, or the raw string. The HiveMind flow is identical.
+
+### How does ask_selection() work through HiveMind?
+`ask_selection()` speaks each option (or a comma-separated list), then calls `get_response()` for the user's choice. The response is matched against options via `OptionMatcherEngine` plugin (fuzzy match). With `numeric=True`, options are spoken as a numbered menu.
+
+### How do PHAL volume tests work if there's no real audio hardware?
+`MockVolumePHAL` registers handlers on `satellite.internal_bus` for `mycroft.volume.*` messages. This proves HiveMind delivers volume control messages to the satellite where the real PHAL plugin would run. The volume *skill* runs on the hub; the PHAL *handler* runs on the satellite.
+
+### Why do volume increase/decrease tests need a hub-side mock?
+The volume skill's `_query_volume()` calls `bus.wait_for_response("mycroft.volume.get")` on the hub's MiniCroft bus to get the current volume before adjusting it. Without a mock responder on `agent.bus`, the call times out. Register one in the fixture: `agent.bus.on("mycroft.volume.get", lambda m: agent.bus.emit(m.response({"percent": 0.5})))`.
+
+### How does the stop command flow through HiveMind?
+Satellite sends "stop" → hub's StopService sends `{skill_id}.stop.ping` to each active skill → skill responds with `skill.stop.pong` (can_stop=True/False) → StopService sends `{skill_id}.stop` → skill's `stop_session()` sets active flag to False → counting loop exits. **Requirement:** pipeline must include `"ovos-stop-pipeline-plugin"`.
+
+### How do I test a custom skill without packaging it?
+Use `extra_skills` to inject skill classes directly into MiniCroft:
+```python
+agent = OvoscopeAgentProtocol(
+    skill_ids=[],
+    extra_skills={"my-test-skill.test": MyTestSkillClass}
+)
+```
+
+### Why do ACL tests need separate fixtures?
+ACL (skill_blacklist, intent_blacklist, msg_blacklist) is set at satellite registration time and is immutable per connection. Each ACL scenario needs its own topology with different satellite registrations.
+
+### How does multi-satellite response isolation work?
+HiveMind tracks the originating satellite via `message.context["destination"]`. Responses route only to the satellite that sent the utterance — other satellites are unaffected. Tested in `test_e2e_multi_satellite.py`.
+
+### What is SatelliteAutoResponder?
+A test helper that listens for `speak` messages with `expect_response=True` on the satellite's `internal_bus` and automatically sends predefined responses back through HiveMind. Used for testing multi-turn dialogs (get_response, ask_yesno, ask_selection).
+
+### What shared helpers are in conftest.py?
+- `skill_missing(*skill_ids)` — check if skills are installed (for skipif)
+- `make_utterance(text, pipeline, session_id, lang)` — build correctly-formed utterance messages
+- `assert_types_in_order(messages, *types)` — assert message types appear in sequence
+- `wait_for_satellite_message(satellite, msg_type, timeout)` — block until message arrives on satellite bus
+- Skill ID constants: `SKILL_HELLO`, `SKILL_DATETIME`, `SKILL_VOLUME`, `SKILL_PERSONAL`, `SKILL_NAPTIME`, `SKILL_FALLBACK`, `SKILL_EASTER_EGGS`, `SKILL_SPELLING`, `SKILL_IP`, `SKILL_COUNT`, `SKILL_PARROT`, `SKILL_RANDOMNESS`, `SKILL_DICTATION`

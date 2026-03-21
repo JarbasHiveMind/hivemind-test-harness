@@ -3,6 +3,37 @@
 
 ---
 
+## 2026-03-21 — E2E Skill Tests + Documentation (Claude Opus 4.6)
+
+### AI Transparency
+- **AI Model:** Claude Opus 4.6 (claude-opus-4-6)
+- **Actions Taken:**
+  - Created 81 E2E tests across 11 new test files, routing real OVOS skill utterances through the full HiveMind satellite→hub→MiniCroft pipeline
+  - Added shared test helpers to `conftest.py`: `skill_missing()`, `make_utterance()`, `assert_types_in_order()`, `wait_for_satellite_message()`, 13 skill ID constants
+  - Implemented `MockVolumePHAL` (satellite-side volume handler capture), `SatelliteAutoResponder` (automated multi-turn dialog responses), and injected test skills (`AskYesNoTestSkill`, `AskSelectionTestSkill`, `AskSelectionNumericTestSkill`)
+  - Created comprehensive documentation: `docs/06-e2e-skill-tests.md` covering continuous dialog (get_response, ask_yesno, ask_selection), PHAL volume integration, stop command flow, ACL with real skills, multi-satellite isolation
+  - Updated `FAQ.md` with 13 new Q&A entries covering all E2E patterns
+  - Updated `TODO.md` with completed E2E skill test checklist
+  - Updated `docs/index.md` with link to new doc
+- **Oversight:** Human-in-the-loop; all tool calls visible and approved.
+
+### New Test Files
+| File | Tests | Coverage |
+|------|-------|---------|
+| `tests/test_e2e_skills.py` | 11 | date-time, personal, naptime, fallback, easter-eggs, spelling |
+| `tests/test_e2e_volume_phal.py` | 13 | volume + satellite MockVolumePHAL |
+| `tests/test_e2e_relay_skills.py` | 5 | chain/deep relay topologies |
+| `tests/test_e2e_multi_satellite.py` | 3 | response isolation |
+| `tests/test_e2e_session.py` | 4 | session state propagation |
+| `tests/test_e2e_acl_skills.py` | 8 | skill/intent/msg blacklists |
+| `tests/test_e2e_converse.py` | 5 | parrot skill converse mode |
+| `tests/test_e2e_misc_skills.py` | 8 | IP, count, edge cases |
+| `tests/test_e2e_get_response.py` | 7 | multi-turn get_response() |
+| `tests/test_e2e_stop.py` | 7 | stop command + ping/pong |
+| `tests/test_e2e_ask_yesno_selection.py` | 10 | ask_yesno, ask_selection |
+
+---
+
 ## 2026-03-09 — Relay Architecture + PING Propagation (Claude Sonnet 4.6)
 
 ### AI Transparency

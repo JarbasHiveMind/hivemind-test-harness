@@ -2,8 +2,6 @@
 
 In-process protocol test framework for HiveMind. Simulates complex network topologies without sockets or external AI backends. Used for protocol verification, integration testing, and performance benchmarking.
 
-**326 tests across 32 files.**
-
 ## Documentation Guides
 
 | Document | Purpose |
@@ -13,6 +11,7 @@ In-process protocol test framework for HiveMind. Simulates complex network topol
 | [03-topologies.md](03-topologies.md) | Network topology definitions (T1–T9) with fixture summary |
 | [04-test-scenarios.md](04-test-scenarios.md) | Individual test scenario catalogue (Groups 1–12) |
 | [05-implementation.md](05-implementation.md) | Code structure, class designs, pytest fixtures |
+| [06-e2e-skill-tests.md](06-e2e-skill-tests.md) | **E2E skill tests** — real OVOS skills through HiveMind, continuous dialog, PHAL, ACL, stop |
 | [07-message-routing.md](07-message-routing.md) | Context keys, session_id lifecycle, reverse routing, `TestAgentProtocol` production parity |
 | [api.md](api.md) | API reference for all harness classes |
 | [nodes.md](nodes.md) | `MasterNode` and `SatelliteNode` implementation details |
