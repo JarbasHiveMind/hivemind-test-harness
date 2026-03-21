@@ -2,7 +2,7 @@
 
 End-to-end protocol test framework for HiveMind. Simulates N satellites and N masters across
 various network topologies and validates that all HiveMind message types are correctly routed,
-encrypted, and delivered.
+encrypted, and delivered. **326 tests across 32 test files.**
 
 ## Key Design Decision
 
@@ -25,12 +25,15 @@ encryption/decryption, session management, ACL, routing, hop tracking.
 
 | Document | Purpose |
 |---|---|
+| [docs/index.md](docs/index.md) | Overview and navigation |
 | [docs/01-architecture.md](docs/01-architecture.md) | Plugin design, in-process message flow |
 | [docs/02-protocol-coverage.md](docs/02-protocol-coverage.md) | Full protocol coverage checklist |
 | [docs/03-topologies.md](docs/03-topologies.md) | Network topology definitions (T1–T9) |
-| [docs/04-test-scenarios.md](docs/04-test-scenarios.md) | Individual test scenario catalogue (~56 tests) |
+| [docs/04-test-scenarios.md](docs/04-test-scenarios.md) | Individual test scenario catalogue |
 | [docs/05-implementation.md](docs/05-implementation.md) | Code structure and class designs |
-| [docs/06-roadmap.md](docs/06-roadmap.md) | Phased delivery roadmap |
+| [docs/07-message-routing.md](docs/07-message-routing.md) | Context keys, session flow, reverse routing |
+| [docs/api.md](docs/api.md) | API reference for harness classes |
+| [docs/nodes.md](docs/nodes.md) | Node implementation details |
 
 ## Quick Example
 
@@ -53,15 +56,20 @@ def test_escalate_reaches_top_master(chain_topology):
     s0.recorder.assert_not_received(HiveMessageType.ESCALATE, direction="in")
 ```
 
+## Installation
+
+```bash
+uv pip install -e ../hivemind-core
+uv pip install -e ../hivemind-websocket-client
+uv pip install -e ../hivemind-plugin-manager
+uv pip install -e ../poorman_handshake
+uv pip install -e .[dev]
+```
+
 ## Running Tests
 
 ```bash
-pip install -e ../hivemind-core
-pip install -e ../hivemind-websocket-client
-pip install -e ../hivemind-plugin-manager
-pip install -e ../poorman_handshake
-pip install -e .[dev]
-
-pytest tests/
-pytest tests/ -m "not slow"   # skip stress tests
+uv run pytest tests/ -v --timeout=60 -m "not slow"    # standard run (~320 tests)
+uv run pytest tests/ -v --timeout=120                  # include stress tests
+uv run pytest tests/test_handshake.py -v               # single module
 ```

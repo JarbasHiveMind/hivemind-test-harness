@@ -253,22 +253,15 @@ Each scenario is a named test case with:
 
 ---
 
-## Group 9: PING / CASCADE / QUERY
+## Group 9: PING
 
 ### TS-PING-01 · Ping Maps the Network
 - **Topology**: T4 (tree)
 - **Action**: M0 sends PING
 - **Expected**: All nodes respond; M0 collects route data for all 6 satellites + 3 sub-masters
 
-### TS-CASC-01 · CASCADE Expects Responses from All
-- **Topology**: T2
-- **Action**: S0 sends CASCADE
-- **Expected**: M0 fans out; S1, S2 both acknowledge; M0 collects both responses
-
-### TS-QUERY-01 · QUERY Stops at First Responder
-- **Topology**: T4
-- **Action**: S0 sends QUERY for a capability
-- **Expected**: First node that can answer replies; escalation stops; later nodes do not reply
+See `test_ping_pong.py` for 49 comprehensive PING tests covering topology discovery,
+response aggregation, and multi-hop scenarios.
 
 ---
 
@@ -329,3 +322,21 @@ Each scenario is a named test case with:
 - **Topology**: T2
 - **Action**: M0 sends BROADCAST targeting S0 and S1
 - **Expected**: When S1 receives, S0 is no longer in `target_peers`
+
+---
+
+## Additional Test Groups (not individually catalogued)
+
+The following test files cover scenarios beyond the numbered groups above.
+See `02-protocol-coverage.md` for the complete file listing.
+
+- **Protocol rules** (`test_protocol_rules.py`, 14 tests) — protocol invariant validation
+- **Protocol fixes** (`test_protocol_fixes.py`, 8 tests) — regression tests for bugs fixed upstream
+- **Embedded clients** (`test_embedded_*.py`, 37 tests) — ESP32/MicroPython client compatibility
+- **Voice PE** (`test_voice_pe_*.py`, 31 tests) — Voice PE protocol and satellite integration
+- **All topologies** (`test_all_topologies.py`, 27 tests) — cross-topology protocol validation
+- **Ovoscope integration** (`test_ovoscope_integration.py`, 9 tests) — real IntentService roundtrip
+- **HelloWorld** (`test_helloworld_hivemind.py`, 15 tests) — full utterance→skill→speak via ovoscope
+- **Utterance flow** (`test_utterance_flow.py`, 6 tests) — end-to-end utterance processing
+- **Solver harness** (`test_solver_harness.py`, 5 tests) — solver plugin integration
+- **Topology plots** (`test_topology_plots.py`, 12 tests) — topology visualization

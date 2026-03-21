@@ -1,38 +1,34 @@
 # Protocol Coverage
 
-Actual test coverage status for all HiveMind protocol message types, binary payload types,
-and related features. **72 tests, all passing.**
-
-Last updated to reflect implementation after comprehensive coverage review.
+Test coverage status for all HiveMind protocol message types, binary payload types,
+and related features. **326 tests across 32 files, all passing.**
 
 ---
 
-## Message Types (`HiveMessageType`) — 72 tests
+## Message Types (`HiveMessageType`)
 
-| Type | Value | Direction | Description | Status | Test file |
+| Type | Value | Direction | Description | Status | Test file(s) |
 |---|---|---|---|---|---|
-| HANDSHAKE | `shake` | both | PAKE key exchange | ✅ tested | `test_handshake.py` |
+| HANDSHAKE | `shake` | both | PAKE key exchange | ✅ tested | `test_handshake.py`, `test_handshake_edge_cases.py` |
 | HELLO | `hello` | both | Session sync after handshake | ✅ tested | `test_handshake.py` |
-| BUS | `bus` | satellite→master, master→satellite | OVOS bus message injection | ✅ tested | `test_bus.py` |
+| BUS | `bus` | both | OVOS bus message injection | ✅ tested | `test_bus.py`, `test_utterance_flow.py` |
 | SHARED_BUS | `shared_bus` | satellite→master | Passive bus monitoring | ✅ tested | `test_shared_bus.py` |
 | BROADCAST | `broadcast` | admin-satellite→master→all | Fan-out to all connected nodes | ✅ tested | `test_broadcast.py` |
 | PROPAGATE | `propagate` | satellite→master→siblings+upstream | Fan-out + escalate combined | ✅ tested | `test_propagate.py` |
 | ESCALATE | `escalate` | satellite→masters-only | Forward up authority chain | ✅ tested | `test_escalate.py` |
 | INTERCOM | `intercom` | satellite→master→target-satellite | RSA-encrypted peer-to-peer routing | ✅ tested | `test_intercom.py` |
+| PING | `ping` | both | Network topology discovery | ✅ tested | `test_ping_pong.py` (49 tests) |
 | QUERY | `query` | upstream | Like ESCALATE but stops at first responder | ⚠️ not implemented | `test_unimplemented_types.py` |
 | CASCADE | `cascade` | both | Like PROPAGATE but expects responses | ⚠️ not implemented | `test_unimplemented_types.py` |
-| PING | `ping` | both | Network topology discovery | ⚠️ not implemented | `test_unimplemented_types.py` |
 | RENDEZVOUS | `rendezvous` | reserved | Rendezvous-node peer discovery | ⚠️ not implemented | `test_unimplemented_types.py` |
-| THIRDPRTY | `3rdparty` | both | User-land free-form message | ✅ tested (inner + top-level) | `test_propagate.py`, `test_unimplemented_types.py` |
-| BINARY | `bin` | satellite→master | Binary data container (7 subtypes) | ✅ tested | `test_binary.py` |
+| THIRDPRTY | `3rdparty` | both | User-land free-form message | ✅ tested | `test_propagate.py`, `test_unimplemented_types.py` |
+| BINARY | `bin` | satellite→master | Binary data container (7 subtypes) | ✅ tested | `test_binary.py`, `test_binary_flow.py`, `test_binarize_e2e.py` |
 
-### Not-yet-implemented types (QUERY / CASCADE / PING / RENDEZVOUS)
+### Not-yet-implemented types (QUERY / CASCADE / RENDEZVOUS)
 
-These four types are defined in `HiveMessageType` but `HiveMindListenerProtocol.handle_message`
+These three types are defined in `HiveMessageType` but `HiveMindListenerProtocol.handle_message`
 routes them to `handle_unknown_message()` (an empty stub). The stub tests in
 `test_unimplemented_types.py` verify no crash occurs and the master records the inbound message.
-
-When the protocol handlers are implemented, replace the stub tests with behavioral tests.
 
 ---
 
@@ -99,6 +95,45 @@ When the protocol handlers are implemented, replace the stub tests with behavior
 | Admin can use any session | ✅ tested | `test_handshake.py::TestAdminDefaultSession` |
 | Session context propagated through BUS | ✅ tested | `test_bus.py::TestSatelliteInjectsBus` |
 | Session IDs don't bleed across satellites | ✅ tested | `test_bus.py::TestMultipleSatellitesBus` |
+
+---
+
+## All Test Files (32 files, 326 tests)
+
+| File | Tests | Purpose |
+|---|---|---|
+| `test_acl.py` | 6 | Message/skill/intent blacklists, allowed_types |
+| `test_all_topologies.py` | 27 | Cross-topology protocol validation |
+| `test_audio_transformers.py` | 8 | Audio pipeline transformer integration |
+| `test_binarize_e2e.py` | 7 | Binary bitstring encoding roundtrip (Protocol V2) |
+| `test_binary_flow.py` | 9 | Binary data flow through relay chains |
+| `test_binary.py` | 7 | All 7 binary payload types |
+| `test_broadcast.py` | 6 | Admin/non-admin broadcast, target_site_id |
+| `test_bus.py` | 9 | BUS inject, reply, allowed_types, multi-satellite |
+| `test_embedded_clients.py` | 11 | Embedded (ESP32/MicroPython) client protocol |
+| `test_embedded_comprehensive.py` | 16 | Comprehensive embedded client scenarios |
+| `test_embedded_interop.py` | 10 | Embedded ↔ standard client interoperability |
+| `test_escalate.py` | 6 | Upstream-only routing, can_escalate ACL |
+| `test_handshake_edge_cases.py` | 5 | Handshake failure modes and edge cases |
+| `test_handshake.py` | 12 | PAKE handshake, session setup, multi-satellite |
+| `test_helloworld_hivemind.py` | 15 | Full utterance→skill→speak roundtrip via ovoscope |
+| `test_hivemind_bus_client_e2e.py` | 5 | hivemind-bus-client integration |
+| `test_intercom.py` | 4 | Peer-to-peer RSA-encrypted routing |
+| `test_js_e2e.py` | 3 | JavaScript client protocol compatibility |
+| `test_micropython_e2e.py` | 4 | MicroPython client protocol compatibility |
+| `test_ovoscope_integration.py` | 9 | OvoscopeAgentProtocol with real IntentService |
+| `test_ping_pong.py` | 49 | PING network topology discovery |
+| `test_propagate.py` | 6 | Fan-out + escalate, can_propagate ACL |
+| `test_protocol_fixes.py` | 8 | Regression tests for bugs fixed in core/client |
+| `test_protocol_rules.py` | 14 | Protocol invariant validation |
+| `test_routing.py` | 7 | Deep chain escalate/propagate, hop tracking |
+| `test_shared_bus.py` | 4 | Passive bus monitoring (share_bus flag) |
+| `test_solver_harness.py` | 5 | Solver plugin harness integration |
+| `test_topology_plots.py` | 12 | Topology visualization/validation |
+| `test_unimplemented_types.py` | 5 | QUERY/CASCADE/RENDEZVOUS stub safety |
+| `test_utterance_flow.py` | 6 | End-to-end utterance processing flow |
+| `test_voice_pe_protocol.py` | 18 | Voice PE protocol message handling |
+| `test_voice_pe_satellite.py` | 13 | Voice PE satellite integration |
 
 ---
 
