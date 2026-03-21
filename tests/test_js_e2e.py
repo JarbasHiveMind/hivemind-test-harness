@@ -135,21 +135,88 @@ class TestJSE2E:
                     print("STDERR:", result.stderr)
                     pytest.fail(f"JS driver failed: {result.stderr}")
 
-            # Hub should have recorded the utterance
-            bus_messages = [
-                msg for msg in m.recorder.messages
-                if msg.msg_type == HiveMessageType.BUS
-            ]
-
-            assert len(bus_messages) > 0, "No BUS messages received on hub"
-
-            # Verify at least one message contains utterance
+            # Hub should have recorded messages via the agent protocol
+            # The agent protocol's injected list captures bus messages
+            injected = m.agent_protocol.injected
             utterance_messages = [
-                msg for msg in bus_messages
-                if msg.payload and msg.payload.msg_type == "recognizer_loop:utterance"
+                msg for msg in injected
+                if msg.msg_type == "recognizer_loop:utterance"
             ]
 
-            assert len(utterance_messages) > 0, "No utterance messages received on hub"
+            assert len(utterance_messages) > 0, (
+                "No utterance messages received on hub. "
+                f"Injected: {injected}, "
+                f"Records: {m.recorder.records}"
+            )
+
+        finally:
+            b.stop_all()
+
+    def test_session_id_propagated_in_utterance(self):
+        """JS-E2E-03: Session ID is propagated in utterance context.
+
+        Verifies that the JS client includes session.session_id in the
+        bus message context, so the hub can associate the message with
+        the correct session instead of falling back to 'default'.
+        """
+        b = TopologyBuilder()
+        m = b.add_master("M0", use_loopback=True)
+        m.register_satellite("js-sat3", password="js-password3")
+        b.start_all()
+
+        try:
+            driver_path = self._get_js_driver_path()
+            if not driver_path.exists():
+                pytest.skip(f"JS driver not found at {driver_path}")
+
+            url = m.network_protocol.url
+
+            result = subprocess.run(
+                [
+                    "node",
+                    str(driver_path),
+                    url,
+                    "js-sat3",
+                    "js-sat3",
+                    "js-password3",
+                    "session test utterance",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+
+            if result.returncode != 0:
+                if "node: command not found" in result.stderr or "No such file" in result.stderr:
+                    pytest.skip("Node.js not available in test environment")
+                else:
+                    print("STDOUT:", result.stdout)
+                    print("STDERR:", result.stderr)
+                    pytest.fail(f"JS driver failed: {result.stderr}")
+
+            # Check that at least one injected utterance has session context
+            injected = m.agent_protocol.injected
+            utterance_messages = [
+                msg for msg in injected
+                if msg.msg_type == "recognizer_loop:utterance"
+            ]
+
+            assert len(utterance_messages) > 0, (
+                "No utterance messages received on hub. "
+                f"Injected: {injected}"
+            )
+
+            # Verify session_id is present and not 'default'
+            for msg in utterance_messages:
+                ctx = msg.context or {}
+                session = ctx.get("session", {})
+                session_id = session.get("session_id", "")
+                assert session_id, (
+                    f"session_id missing from utterance context: {ctx}"
+                )
+                assert session_id != "default", (
+                    f"session_id should not be 'default': {ctx}"
+                )
 
         finally:
             b.stop_all()

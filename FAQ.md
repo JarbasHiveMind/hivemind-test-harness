@@ -60,6 +60,9 @@ Yes. The relay's satellite side receives `PROPAGATE(PING)`, emits `hive.send.dow
 ### Which HiveMessage types are tested?
 All 9 implemented types: BUS, BROADCAST, ESCALATE, PROPAGATE, INTERCOM, SHARED_BUS, HELLO, GOODBYE, BINARY.
 
+### Is binarize mode tested?
+Yes. `test_binarize_e2e.py` (7 tests) covers handshake negotiation (both enabled/disabled), BUS message downstream roundtrip, and BINARY payload downstream through the bitstring encode/decode path. Patch `get_server_config` to return `binarize: True`. Note: upstream (satellite-to-master) bypasses serialization in the in-process shim, so binarize encoding is only exercised on the downstream path.
+
 ### Which types are NOT yet implemented in hivemind-core?
 QUERY, CASCADE, RENDEZVOUS. Stub tests in `test_unimplemented_types.py` verify they raise `NotImplementedError`.
 

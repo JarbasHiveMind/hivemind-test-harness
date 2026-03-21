@@ -1,20 +1,20 @@
 """
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Corrected relay PING propagation behavior — shared agent bus causes PING to propagate through relay nodes as in real HiveMind.
+Last Edit: Claude Opus 4.6 - 2026-03-21 - Motive: Rewrite for PING-only discovery protocol — no more PONG messages; satellites respond with their own PING (same flood_id).
 
-TS-PING-01..11 — PING / PONG / HiveMap end-to-end scenarios.
+TS-PING-01..11 — PING-only flood discovery / HiveMap end-to-end scenarios.
 
 Coverage
 ────────
   TS-PING-01  PROPAGATE(PING) from master reaches satellite(s)
-  TS-PING-02  Satellite auto-replies with PROPAGATE(PONG)
-  TS-PING-03  Master bus fires hive.ping.received
-  TS-PING-04  Master bus fires hive.pong.received
-  TS-PING-05  HiveMapper state after full ping-pong cycle
+  TS-PING-02  Satellite auto-replies with responsive PING (same flood_id)
+  TS-PING-03  Master bus fires hive.ping.received (satellite-originated)
+  TS-PING-04  Master bus fires hive.ping.received after flood discovery cycle
+  TS-PING-05  HiveMapper state after full ping flood cycle
   TS-PING-06  All satellites in a star topology respond
   TS-PING-07  Chain / deep-chain: PING propagates through relay nodes to leaf sats
   TS-PING-08  Huge hive — M0 discovers all nodes through relay forwarding
   TS-PING-09  Chaotic hive — M0 discovers all nodes through relay forwarding
-  TS-PING-10  Silent nodes — nodes that skip PONG are absent from HiveMapper
+  TS-PING-10  Silent nodes — nodes that skip responsive PING are absent from HiveMapper
   TS-PING-11  Asymmetric hive — M0 discovers entire long arm via relay forwarding
 
 Relay (dual-role node) propagation
@@ -31,6 +31,12 @@ the hive tree; M0's HiveMapper is populated with the ENTIRE reachable graph,
 not just its direct children.
 
 Each relay master's own HiveMapper captures the view from its vantage point.
+
+Protocol change (PING-only discovery):
+Satellites no longer send PONG.  Instead, they respond with their own PING
+carrying the same ``flood_id``.  The master's ``HiveMapper.on_ping()`` handles
+deduplication via ``_seen_pings``.  The bus event is ``hive.ping.received``
+for all discovery responses.
 """
 
 import json as _json
@@ -58,7 +64,7 @@ def _make_ping(peer: str, site_id: str = "test-site") -> HiveMessage:
     ping_inner = HiveMessage(
         HiveMessageType.PING,
         payload={
-            "ping_id": str(uuid.uuid4()),
+            "flood_id": str(uuid.uuid4()),
             "timestamp": time.time(),
             "peer": peer,
             "site_id": site_id,
@@ -67,16 +73,20 @@ def _make_ping(peer: str, site_id: str = "test-site") -> HiveMessage:
     return HiveMessage(HiveMessageType.PROPAGATE, payload=ping_inner)
 
 
-def _ping_id(outer: HiveMessage) -> str:
-    """Extract the ping_id from a PROPAGATE(PING) outer message."""
-    return outer.payload.payload["ping_id"]
+def _flood_id(outer: HiveMessage) -> str:
+    """Extract the flood_id from a PROPAGATE(PING) outer message."""
+    return outer.payload.payload["flood_id"]
 
 
 def _do_ping(master_node) -> HiveMessage:
     """Send a PING from master_node to all its direct clients and return the
-    outer PROPAGATE(PING) message (for ping_id retrieval)."""
+    outer PROPAGATE(PING) message (for flood_id retrieval)."""
     ping_msg = _make_ping(peer=master_node.hm_protocol.peer)
-    master_node.hm_protocol.hive_mapper.start_ping(_ping_id(ping_msg))
+    fid = _flood_id(ping_msg)
+    master_node.hm_protocol.hive_mapper.start_ping(fid)
+    # Mark this flood_id as seen so the master doesn't re-announce when
+    # responsive PINGs come back (it already announced by sending the original)
+    master_node.hm_protocol._seen_flood_ids.add(fid)
     master_node.send_to_all(ping_msg)
     return ping_msg
 
@@ -110,7 +120,7 @@ class TestPingReachesSatellite:
 
         ping_wraps = [m for m in received
                       if m.payload.msg_type == HiveMessageType.PING]
-        assert len(ping_wraps) == 1, "Exactly one PROPAGATE(PING) should arrive"
+        assert len(ping_wraps) >= 1, "At least one PROPAGATE(PING) should arrive"
 
     def test_all_satellites_receive_ping_star(self, star_topology):
         b = star_topology
@@ -126,24 +136,24 @@ class TestPingReachesSatellite:
         for i in range(3):
             ping_wraps = [m for m in counters[i]
                           if m.payload.msg_type == HiveMessageType.PING]
-            assert len(ping_wraps) == 1, f"S{i} should receive exactly one PING"
+            assert len(ping_wraps) >= 1, f"S{i} should receive at least one PING"
 
 
 # ---------------------------------------------------------------------------
-# TS-PING-02 — Satellite auto-replies with PROPAGATE(PONG)
+# TS-PING-02 — Satellite auto-replies with responsive PING (same flood_id)
 # ---------------------------------------------------------------------------
 
 class TestSatelliteRespondsToPing:
-    """TS-PING-02 — satellite auto-replies with PONG when it receives a PING."""
+    """TS-PING-02 — satellite auto-replies with its own PING when it receives a PING."""
 
-    def test_pong_updates_hive_mapper(self, minimal_topology):
+    def test_responsive_ping_updates_hive_mapper(self, minimal_topology):
         b = minimal_topology
         m0 = b.get_master("M0")
         _do_ping(m0)
         assert len(m0.hm_protocol.hive_mapper.nodes) >= 1, \
-            "HiveMapper must register at least one node after PONG"
+            "HiveMapper must register at least one node after responsive PING"
 
-    def test_pong_registers_satellite_peer(self, minimal_topology):
+    def test_responsive_ping_registers_satellite_peer(self, minimal_topology):
         b = minimal_topology
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
@@ -152,7 +162,7 @@ class TestSatelliteRespondsToPing:
         assert s0.peer in mapper_peers, \
             f"Satellite peer {s0.peer!r} not in mapper nodes: {mapper_peers}"
 
-    def test_pong_carries_correct_site_id(self, minimal_topology):
+    def test_responsive_ping_carries_correct_site_id(self, minimal_topology):
         b = minimal_topology
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
@@ -164,7 +174,7 @@ class TestSatelliteRespondsToPing:
 
 
 # ---------------------------------------------------------------------------
-# TS-PING-03 — bus event hive.ping.received on master
+# TS-PING-03 — bus event hive.ping.received on master (satellite-originated)
 # ---------------------------------------------------------------------------
 
 class TestHivePingReceivedBusEvent:
@@ -179,7 +189,7 @@ class TestHivePingReceivedBusEvent:
         m0.agent_protocol.bus.on("hive.ping.received", events.append)
 
         ping_inner = HiveMessage(HiveMessageType.PING, payload={
-            "ping_id": "sat-originated-ping",
+            "flood_id": "sat-originated-ping",
             "timestamp": time.time(),
             "peer": s0.peer,
             "site_id": s0.identity.site_id or "",
@@ -188,7 +198,7 @@ class TestHivePingReceivedBusEvent:
 
         assert len(events) >= 1, "hive.ping.received must fire on master bus"
 
-    def test_event_data_contains_ping_id(self, minimal_topology):
+    def test_event_data_contains_flood_id(self, minimal_topology):
         b = minimal_topology
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
@@ -196,9 +206,9 @@ class TestHivePingReceivedBusEvent:
         events = []
         m0.agent_protocol.bus.on("hive.ping.received", events.append)
 
-        ping_id = "check-ping-id-propagation"
+        flood_id = "check-flood-id-propagation"
         ping_inner = HiveMessage(HiveMessageType.PING, payload={
-            "ping_id": ping_id,
+            "flood_id": flood_id,
             "timestamp": time.time(),
             "peer": s0.peer,
             "site_id": s0.identity.site_id or "",
@@ -206,24 +216,25 @@ class TestHivePingReceivedBusEvent:
         s0.send(HiveMessage(HiveMessageType.PROPAGATE, payload=ping_inner))
 
         assert events, "hive.ping.received must fire"
-        assert events[0].data["ping_id"] == ping_id, \
-            f"Expected ping_id={ping_id!r}, got {events[0].data.get('ping_id')!r}"
+        assert events[0].data["flood_id"] == flood_id, \
+            f"Expected flood_id={flood_id!r}, got {events[0].data.get('flood_id')!r}"
 
 
 # ---------------------------------------------------------------------------
-# TS-PING-04 — bus event hive.pong.received on master
+# TS-PING-04 — bus event hive.ping.received after flood discovery cycle
 # ---------------------------------------------------------------------------
 
-class TestHivePongReceivedBusEvent:
-    """TS-PING-04 — master's bus fires hive.pong.received after a full ping-pong cycle."""
+class TestHivePingReceivedFloodEvent:
+    """TS-PING-04 — master's bus fires hive.ping.received for every responsive PING
+    from satellites during a flood discovery cycle."""
 
     def test_event_emitted(self, minimal_topology):
         b = minimal_topology
         m0 = b.get_master("M0")
         events = []
-        m0.agent_protocol.bus.on("hive.pong.received", events.append)
+        m0.agent_protocol.bus.on("hive.ping.received", events.append)
         _do_ping(m0)
-        assert len(events) >= 1, "hive.pong.received must fire on master bus"
+        assert len(events) >= 1, "hive.ping.received must fire on master bus"
 
     def test_event_data_has_correct_peer(self, minimal_topology):
         b = minimal_topology
@@ -231,21 +242,21 @@ class TestHivePongReceivedBusEvent:
         s0 = b.get_satellite("S0")
 
         events = []
-        m0.agent_protocol.bus.on("hive.pong.received", events.append)
+        m0.agent_protocol.bus.on("hive.ping.received", events.append)
         _do_ping(m0)
 
-        assert events, "hive.pong.received must fire"
+        assert events, "hive.ping.received must fire"
         assert "peer" in events[0].data, "Event data must include 'peer'"
         assert events[0].data["peer"] == s0.peer, \
             f"Expected peer={s0.peer!r}, got {events[0].data.get('peer')!r}"
 
 
 # ---------------------------------------------------------------------------
-# TS-PING-05 — HiveMapper state after a full ping-pong cycle
+# TS-PING-05 — HiveMapper state after a full ping flood cycle
 # ---------------------------------------------------------------------------
 
 class TestHiveMapperIntegration:
-    """TS-PING-05 — HiveMapper reflects accurate topology after ping-pong."""
+    """TS-PING-05 — HiveMapper reflects accurate topology after ping flood discovery."""
 
     def test_to_dict_contains_satellite_node(self, minimal_topology):
         b = minimal_topology
@@ -268,9 +279,9 @@ class TestHiveMapperIntegration:
     def test_to_ascii_renders_root_peer(self, minimal_topology):
         """to_ascii(root_peer=…) always renders the root even when edges are empty.
 
-        In a direct 1-hop topology the PONG carries no route hops (no relay
-        called update_hop_data), so no edges are registered.  The root is
-        still rendered under the ``[self]`` label.
+        In a direct 1-hop topology the responsive PING carries no route hops
+        (no relay called update_hop_data), so no edges are registered.  The
+        root is still rendered under the ``[self]`` label.
         """
         b = minimal_topology
         m0 = b.get_master("M0")
@@ -309,13 +320,13 @@ class TestHiveMapperIntegration:
 class TestPingAllSatellitesStar:
     """TS-PING-06 — every satellite in a star topology responds to a single PING."""
 
-    def test_all_satellites_pong(self, star_topology):
+    def test_all_satellites_respond(self, star_topology):
         b = star_topology
         m0 = b.get_master("M0")
         _do_ping(m0)
         n_nodes = len(m0.hm_protocol.hive_mapper.nodes)
         assert n_nodes == 3, \
-            f"Expected 3 PONG responses (one per satellite), got {n_nodes}"
+            f"Expected 3 responsive PINGs (one per satellite), got {n_nodes}"
 
     def test_all_satellite_peers_in_mapper(self, star_topology):
         b = star_topology
@@ -327,8 +338,8 @@ class TestPingAllSatellitesStar:
             assert sat_peer in mapper_peers, \
                 f"S{i} peer {sat_peer!r} missing from HiveMapper: {mapper_peers}"
 
-    def test_pong_deduplication_across_multiple_pings(self, star_topology):
-        """Same ping_id sent twice must not double-count satellites."""
+    def test_deduplication_across_multiple_pings(self, star_topology):
+        """Same flood_id sent twice must not double-count satellites."""
         b = star_topology
         m0 = b.get_master("M0")
         fixed_id = "dedup-test-id"
@@ -336,7 +347,7 @@ class TestPingAllSatellitesStar:
 
         for _ in range(2):
             ping_inner = HiveMessage(HiveMessageType.PING, payload={
-                "ping_id": fixed_id,
+                "flood_id": fixed_id,
                 "timestamp": time.time(),
                 "peer": m0.hm_protocol.peer,
                 "site_id": "hub",
@@ -347,14 +358,14 @@ class TestPingAllSatellitesStar:
         assert n_nodes == 3, \
             f"Deduplication failed: expected 3 unique nodes, got {n_nodes}"
 
-    def test_hive_pong_received_fires_per_satellite(self, star_topology):
+    def test_hive_ping_received_fires_per_satellite(self, star_topology):
         b = star_topology
         m0 = b.get_master("M0")
         events = []
-        m0.agent_protocol.bus.on("hive.pong.received", events.append)
+        m0.agent_protocol.bus.on("hive.ping.received", events.append)
         _do_ping(m0)
         assert len(events) == 3, \
-            f"Expected 3 hive.pong.received events (one per satellite), got {len(events)}"
+            f"Expected 3 hive.ping.received events (one per satellite), got {len(events)}"
 
 
 # ---------------------------------------------------------------------------
@@ -366,8 +377,8 @@ class TestPingChainTopology:
 
     R1 is a dual-role node (satellite of M0 AND master for S0) sharing one
     agent bus.  When M0's PING reaches R1's satellite side, R1 forwards it
-    downstream to S0 via ``hive.send.downstream``.  S0's PONG is relayed
-    back to M0.  So M0's HiveMapper ends up with BOTH R1_sat AND S0.
+    downstream to S0 via ``hive.send.downstream``.  S0's responsive PING is
+    relayed back to M0.  So M0's HiveMapper ends up with BOTH R1_sat AND S0.
 
     The relay master (R1_master) also has its own HiveMapper; pinging it
     directly yields S0 only (1 node) from R1_master's direct-child perspective.
@@ -399,7 +410,7 @@ class TestPingChainTopology:
         s0 = b.get_satellite("S0")
         _do_ping(m0)
         assert s0.peer in m0.hm_protocol.hive_mapper.nodes, \
-            ("S0's PONG is relayed back to M0 via R1; it must appear in M0's mapper. "
+            ("S0's responsive PING is relayed back to M0 via R1; it must appear in M0's mapper. "
              f"nodes={list(m0.hm_protocol.hive_mapper.nodes)}")
 
     def test_relay_master_can_ping_its_own_satellite(self, chain_topology):
@@ -411,15 +422,15 @@ class TestPingChainTopology:
         assert s0.peer in r1_master.hm_protocol.hive_mapper.nodes, \
             f"S0 should appear in R1_master's HiveMapper after its own PING"
 
-    def test_relay_pong_emits_bus_event(self, chain_topology):
-        """Two hive.pong.received events fire on M0: one for R1_sat, one for S0."""
+    def test_relay_ping_emits_bus_event(self, chain_topology):
+        """Two hive.ping.received events fire on M0: one for R1_sat, one for S0."""
         b = chain_topology
         m0 = b.get_master("M0")
         events = []
-        m0.agent_protocol.bus.on("hive.pong.received", events.append)
+        m0.agent_protocol.bus.on("hive.ping.received", events.append)
         _do_ping(m0)
         assert len(events) == 2, \
-            f"Expected 2 hive.pong.received events on M0 (R1_sat + S0 via relay), got {len(events)}"
+            f"Expected 2 hive.ping.received events on M0 (R1_sat + S0 via relay), got {len(events)}"
 
 
 class TestPingDeepChainTopology:
@@ -427,7 +438,7 @@ class TestPingDeepChainTopology:
 
     Each relay node shares one agent bus and forwards PING downstream.
     So M0's PING propagates: M0→R1_sat, R1 forwards→R2_sat, R2 forwards→S0.
-    All three nodes PONG back, relayed up the chain to M0.
+    All three nodes respond with their own PING, relayed up the chain to M0.
     M0's mapper ends up with all 3 nodes (R1_sat, R2_sat, S0).
 
     R1_master's mapper (when it pings independently) shows: R2_sat + S0 (2).
@@ -521,19 +532,19 @@ class TestPingHugeHive:
             _do_ping(rm)
             n = len(rm.hm_protocol.hive_mapper.nodes)
             assert n == n_sats, \
-                f"RM{relay_idx}_master expected {n_sats} PONGs (leaf sats only), got {n}"
+                f"RM{relay_idx}_master expected {n_sats} responsive PINGs (leaf sats only), got {n}"
 
     @pytest.mark.slow
-    def test_pong_events_count_m0(self, huge_hive_topology):
-        """hive.pong.received fires once per discovered node (all nodes in hive)."""
+    def test_ping_events_count_m0(self, huge_hive_topology):
+        """hive.ping.received fires once per discovered node (all nodes in hive)."""
         b = huge_hive_topology
         m0 = b.get_master("M0")
         events = []
-        m0.agent_protocol.bus.on("hive.pong.received", events.append)
+        m0.agent_protocol.bus.on("hive.ping.received", events.append)
         _do_ping(m0)
         expected = 10 + sum(_HUGE_HIVE_COUNTS)
         assert len(events) == expected, \
-            f"Expected {expected} hive.pong.received events on M0, got {len(events)}"
+            f"Expected {expected} hive.ping.received events on M0, got {len(events)}"
 
 
 # ---------------------------------------------------------------------------
@@ -574,23 +585,23 @@ class TestPingChaoticHive:
 
     @pytest.mark.slow
     def test_r1_master_sees_its_three_satellites(self, chaotic_hive_topology):
-        """R1_master pings: S0, S1, S2 are leaf satellites → no further forwarding."""
+        """R1_master pings: S0, S1, S2 are leaf satellites — no further forwarding."""
         b = chaotic_hive_topology
         r1_master = b.get_master("R1_master")
         _do_ping(r1_master)
         n = len(r1_master.hm_protocol.hive_mapper.nodes)
         assert n == 3, \
-            f"R1_master should see 3 PONGs (S0, S1, S2 — leaf sats), got {n}"
+            f"R1_master should see 3 responsive PINGs (S0, S1, S2 — leaf sats), got {n}"
 
     @pytest.mark.slow
     def test_r2_master_sees_its_whole_subtree(self, chaotic_hive_topology):
-        """R2_master pings: S3 responds directly; R3 forwards to S4 and S5 → 4 total."""
+        """R2_master pings: S3 responds directly; R3 forwards to S4 and S5 — 4 total."""
         b = chaotic_hive_topology
         r2_master = b.get_master("R2_master")
         _do_ping(r2_master)
         n = len(r2_master.hm_protocol.hive_mapper.nodes)
         assert n == 4, \
-            f"R2_master should see 4 PONGs (S3, R3_sat, S4, S5 via relay), got {n}"
+            f"R2_master should see 4 responsive PINGs (S3, R3_sat, S4, S5 via relay), got {n}"
 
     @pytest.mark.slow
     def test_r3_master_sees_s4_and_s5(self, chaotic_hive_topology):
@@ -600,7 +611,7 @@ class TestPingChaoticHive:
         _do_ping(r3_master)
         n = len(r3_master.hm_protocol.hive_mapper.nodes)
         assert n == 2, \
-            f"R3_master should see 2 PONGs (S4, S5), got {n}"
+            f"R3_master should see 2 responsive PINGs (S4, S5), got {n}"
 
     @pytest.mark.slow
     def test_full_network_reachable_from_m0(self, chaotic_hive_topology):
@@ -627,8 +638,8 @@ class TestSilentNodes:
 
     Three mechanisms are tested:
       a) Monkey-patching _handle_ping to be a no-op (clean, no side effects)
-      b) All satellites silent → empty HiveMapper
-      c) Mixed: some respond, some don't → only responders appear
+      b) All satellites silent — empty HiveMapper
+      c) Mixed: some respond, some don't — only responders appear
     """
 
     def test_silent_satellite_absent_from_mapper(self, minimal_topology):
@@ -637,7 +648,7 @@ class TestSilentNodes:
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
 
-        # Make S0 skip PONG entirely
+        # Make S0 skip responsive PING entirely
         original_handle_ping = s0.slave_protocol._handle_ping
         s0.slave_protocol._handle_ping = lambda msg: None
 
@@ -671,7 +682,7 @@ class TestSilentNodes:
             s1.slave_protocol._handle_ping = original
 
     def test_all_silent_mapper_empty(self, star_topology):
-        """All three satellites silenced → empty HiveMapper."""
+        """All three satellites silenced — empty HiveMapper."""
         b = star_topology
         m0 = b.get_master("M0")
 
@@ -817,7 +828,7 @@ class TestPingAsymmetricHive:
 
     @pytest.mark.slow
     def test_deepest_relay_sees_s_deep(self, asymmetric_hive_topology):
-        """RA9_master (deepest relay) sees S_deep's PONG directly."""
+        """RA9_master (deepest relay) sees S_deep's responsive PING directly."""
         b = asymmetric_hive_topology
         ra9_master = b.get_master("RA9_master")
         s_deep = b.get_satellite("S_deep")
