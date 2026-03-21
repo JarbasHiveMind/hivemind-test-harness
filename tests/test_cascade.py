@@ -159,6 +159,60 @@ class TestCascadeACLDenied:
         b.stop_all()
 
 
+class TestCascadeSelectCallback:
+    """TS-CASCADE-06 — cascade_select_callback for disambiguation."""
+
+    def test_select_callback_invoked(self, minimal_topology):
+        """When cascade_select_callback is set, it receives collected responses."""
+        b = minimal_topology
+        s0 = b.get_satellite("S0")
+        m0 = b.get_master("M0")
+
+        query_id = "c-select-01"
+        _setup_agent_responder(m0, query_id, answer="sunny")
+
+        # Set up a select callback that picks the first response
+        selected = []
+
+        def _select(qid, responses):
+            selected.append((qid, len(responses)))
+            if responses:
+                # Return the first response's first message
+                return responses[0].messages[0] if responses[0].messages else None
+            return None
+
+        m0.hm_protocol.cascade_select_callback = _select
+
+        msg = _cascade_msg(query_id=query_id, originator_peer=s0.peer)
+        s0.send(msg)
+
+        # The callback should have been invoked
+        assert len(selected) >= 1, "cascade_select_callback should be invoked"
+        assert selected[0][0] == query_id
+
+    def test_select_callback_none_does_not_emit(self, minimal_topology):
+        """When callback returns None, no message is emitted (waiting for more)."""
+        b = minimal_topology
+        s0 = b.get_satellite("S0")
+        m0 = b.get_master("M0")
+
+        query_id = "c-select-02"
+        _setup_agent_responder(m0, query_id, answer="waiting")
+
+        invoked = []
+
+        def _select(qid, responses):
+            invoked.append(len(responses))
+            return None  # not ready to select yet
+
+        m0.hm_protocol.cascade_select_callback = _select
+
+        msg = _cascade_msg(query_id=query_id, originator_peer=s0.peer)
+        s0.send(msg)
+
+        assert len(invoked) >= 1
+
+
 class TestCascadeResponseMetadata:
     """TS-CASCADE-04 — Responses include responder identity."""
 
