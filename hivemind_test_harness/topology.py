@@ -166,27 +166,20 @@ class TopologyBuilder:
         self._masters[f"{name}_master"] = master
         self._connections.append((f"{name}_sat", upstream.name, connect_kwargs))
 
-        # Wire relay: when the listener receives ESCALATE or PROPAGATE from a
-        # downstream satellite, forward it upstream via the satellite connection.
-        _orig_handle = master.hm_protocol.handle_message
+        # Wire native relay: master forwards ESCALATE/PROPAGATE upstream via sat,
+        # and receives BROADCAST/PROPAGATE from upstream to forward downstream.
+        master.hm_protocol.upstream = sat.send
 
-        def _relaying_handle(hm_message, client, _orig=_orig_handle, _sat=sat):
-            _orig(hm_message, client)
-            # Relay BUS, BINARY, ESCALATE, and PROPAGATE messages upstream
-            if hm_message.msg_type in (HiveMessageType.BUS, HiveMessageType.BINARY, HiveMessageType.ESCALATE, HiveMessageType.PROPAGATE):
-                if _sat._master is not None:
-                    # Create relayed message with all relevant fields
-                    msg_kwargs = {
-                        "msg_type": hm_message.msg_type,
-                        "payload": hm_message.payload,
-                    }
-                    if hm_message.msg_type == HiveMessageType.BINARY:
-                        msg_kwargs["bin_type"] = hm_message.bin_type
-                        msg_kwargs["metadata"] = hm_message.metadata
-                    msg = HiveMessage(**msg_kwargs)
-                    _sat.send(msg)
-
-        master.hm_protocol.handle_message = _relaying_handle
+        # When the relay's satellite side receives BROADCAST or PROPAGATE from
+        # upstream, forward to all downstream clients via the master protocol.
+        sat.shim.emitter.on(
+            HiveMessageType.BROADCAST,
+            lambda msg, _m=master: _m.hm_protocol.handle_upstream_message(msg),
+        )
+        sat.shim.emitter.on(
+            HiveMessageType.PROPAGATE,
+            lambda msg, _m=master: _m.hm_protocol.handle_upstream_message(msg),
+        )
 
         relay = RelayNode(name=name, upstream=sat, listener=master, bus=shared_bus)
         self._relays[name] = relay

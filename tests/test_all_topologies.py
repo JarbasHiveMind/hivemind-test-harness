@@ -74,38 +74,45 @@ class TestBusAllTopologies:
 
     def test_bus_chain(self, chain_topology):
         b = chain_topology
-        # S0 is behind relay R1; its BUS message travels: S0 → R1_master → R1_sat → M0
+        # BUS is consumed-only: S0's BUS arrives at R1's agent, not M0.
         b.get_satellite("S0").send(_bus_msg("from S0 via relay"))
-        b.get_master("M0").agent_protocol.assert_injected(
+        b.get_master("R1_master").agent_protocol.assert_injected(
             "recognizer_loop:utterance", count=1
+        )
+        # M0 does NOT receive it — BUS is never forwarded through relays.
+        b.get_master("M0").agent_protocol.assert_not_injected(
+            "recognizer_loop:utterance"
         )
 
     def test_bus_deep_chain(self, deep_chain_topology):
         b = deep_chain_topology
-        # S0 is behind R2 behind R1; BUS message propagates all the way to M0.
+        # BUS is consumed at the immediate master (R2), not forwarded to M0.
         b.get_satellite("S0").send(_bus_msg("deep chain"))
-        b.get_master("M0").agent_protocol.assert_injected(
+        b.get_master("R2_master").agent_protocol.assert_injected(
             "recognizer_loop:utterance", count=1
         )
 
     @pytest.mark.slow
     def test_bus_huge_hive(self, huge_hive_topology):
         b = huge_hive_topology
-        for i in range(15):
-            b.get_satellite(f"S{i}").send(_bus_msg(f"S{i}"))
-        b.get_master("M0").agent_protocol.assert_injected(
-            "recognizer_loop:utterance", count=15
+        # BUS is consumed at the relay master, not forwarded to M0.
+        b.get_satellite("HS0").send(_bus_msg("HS0"))
+        b.get_master("RM0_master").agent_protocol.assert_injected(
+            "recognizer_loop:utterance", count=1
         )
 
     @pytest.mark.slow
     def test_bus_chaotic(self, chaotic_hive_topology):
         b = chaotic_hive_topology
-        # Leaf satellites at every depth — all should reach M0 via relay chain.
-        leaf_names = ["S0", "S1", "S2", "S3", "S4", "S5", "S6"]
-        for name in leaf_names:
-            b.get_satellite(name).send(_bus_msg(f"from {name}"))
+        # BUS consumed at direct master; S6 is direct satellite of M0.
+        b.get_satellite("S6").send(_bus_msg("from S6"))
         b.get_master("M0").agent_protocol.assert_injected(
-            "recognizer_loop:utterance", count=len(leaf_names)
+            "recognizer_loop:utterance", count=1
+        )
+        # S0 is behind R1, so BUS goes to R1's agent, not M0.
+        b.get_satellite("S0").send(_bus_msg("from S0"))
+        b.get_master("R1_master").agent_protocol.assert_injected(
+            "recognizer_loop:utterance", count=1
         )
 
 
@@ -159,7 +166,7 @@ class TestPropagateAllTopologies:
         b = huge_hive_topology
         calls = []
         b.get_master("M0").hm_protocol.propagate_callback = calls.append
-        b.get_satellite("S0").send(_propagate_msg())
+        b.get_satellite("HS0").send(_propagate_msg())
         assert len(calls) == 1
 
     @pytest.mark.slow
@@ -221,8 +228,8 @@ class TestEscalateAllTopologies:
         for i in range(15):
             calls = []
             b.get_master("M0").hm_protocol.escalate_callback = calls.append
-            b.get_satellite(f"S{i}").send(_escalate_msg())
-            assert len(calls) == 1, f"S{i} escalate failed"
+            b.get_satellite(f"HS{i}").send(_escalate_msg())
+            assert len(calls) == 1, f"HS{i} escalate failed"
             # Reset callback for next iteration
             b.get_master("M0").hm_protocol.escalate_callback = None
 
@@ -358,7 +365,7 @@ class TestBinaryAllTopologies:
 
     def test_binary_chain(self, chain_topology):
         b = chain_topology
-        # S0 is behind relay; BUS routing carries the binary to M0 via relay
+        # BINARY is consumed-only: arrives at R1's binary protocol, not M0.
         b.get_satellite("S0").send(self._bin_msg())
-        calls = b.get_master("M0").binary_protocol.calls
+        calls = b.get_master("R1_master").binary_protocol.calls
         assert any(c.bin_type.name == "RAW_AUDIO" for c in calls)
