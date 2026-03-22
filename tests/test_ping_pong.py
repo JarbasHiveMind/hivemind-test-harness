@@ -520,6 +520,7 @@ class TestPingHugeHive:
                 f"RM{i}_sat peer missing from M0's HiveMapper"
 
     @pytest.mark.slow
+    @pytest.mark.timeout(600)
     def test_each_relay_master_sees_its_own_satellites(self, huge_hive_topology):
         """Each relay master independently pings its own leaf satellites.
 
