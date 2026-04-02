@@ -3,9 +3,24 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hivemind-test-harness"
+name = "hivescope"
 version = "0.1.0"
-description = "In-process end-to-end test framework for the HiveMind protocol"
+description = "Hivescope: E2E testing library for HiveMind protocol"
+readme = "LIBRARY.md"
+license = {text = "AGPL-3.0"}
+authors = [
+    {name = "JarbasAi", email = "jarbasai@mailfence.com"}
+]
+keywords = ["hivemind", "protocol", "testing", "e2e", "pytest", "fixture"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Testing",
+]
 requires-python = ">=3.9"
 dependencies = []  # all come from the workspace editable installs
 
@@ -20,6 +35,10 @@ dev = [
 plot = [
     "matplotlib>=3.5",
     "networkx>=3.0",
+]
+ovos = [
+    "ovoscope>=0.13",
+    "ovos-core>=0.0.30",
 ]
 
 [tool.pytest.ini_options]
