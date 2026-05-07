@@ -1,75 +1,79 @@
 # HiveMind Test Harness
 
-End-to-end protocol test framework for HiveMind. Simulates N satellites and N masters across
-various network topologies and validates that all HiveMind message types are correctly routed,
-encrypted, and delivered. **326 tests across 32 test files.**
+Central HiveMind integration test suite for topology, stress, and cross-repo scenarios. Built on [hivescope](https://github.com/JarbasHiveMind/hivescope).
 
-## Key Design Decision
+## Role
 
-The harness tests **protocol behaviour**, not the network layer.
-All message delivery is in-process — no sockets, no WebSocket servers, no port management.
+This repo owns tests that span multiple HiveMind repos, large network topologies, or sustained-load scenarios. It does **not** ship library code.
 
-This is achieved by implementing the three HiveMind plugin interfaces as test doubles:
+- **Protocol and single-repo e2e tests** belong in the owning repo's `tests/e2e/`, using hivescope directly.
+- **Multi-repo, topology, stress, and cross-language scenarios** live here.
 
-| Plugin | Test Implementation | Purpose |
-|---|---|---|
-| `AgentProtocol` | `TestAgentProtocol` | FakeBus that records every injected OVOS message |
-| `NetworkProtocol` | `TestNetworkProtocol` | In-process wiring; `run()` is a no-op |
-| `BinaryDataHandlerProtocol` | `TestBinaryProtocol` | Records every binary handler call |
+See [HIVEMIND_TEST_STRATEGY.md](https://github.com/JarbasHiveMind/hivemind-test-harness/blob/master/HIVEMIND_TEST_STRATEGY.md) for the full decision table.
 
-Everything that matters runs exactly as in production:
-`HiveMindListenerProtocol`, `HiveMindSlaveProtocol`, handshake crypto (`poorman_handshake`),
-encryption/decryption, session management, ACL, routing, hop tracking.
+## Test Layout
 
-## Documentation
-
-| Document | Purpose |
-|---|---|
-| [docs/index.md](docs/index.md) | Overview and navigation |
-| [docs/01-architecture.md](docs/01-architecture.md) | Plugin design, in-process message flow |
-| [docs/02-protocol-coverage.md](docs/02-protocol-coverage.md) | Full protocol coverage checklist |
-| [docs/03-topologies.md](docs/03-topologies.md) | Network topology definitions (T1–T9) |
-| [docs/04-test-scenarios.md](docs/04-test-scenarios.md) | Individual test scenario catalogue |
-| [docs/05-implementation.md](docs/05-implementation.md) | Code structure and class designs |
-| [docs/07-message-routing.md](docs/07-message-routing.md) | Context keys, session flow, reverse routing |
-| [docs/api.md](docs/api.md) | API reference for harness classes |
-| [docs/nodes.md](docs/nodes.md) | Node implementation details |
-
-## Quick Example
-
-```python
-def test_escalate_reaches_top_master(chain_topology):
-    b = chain_topology          # M0 → R1(relay) → S0
-    s0 = b.get_satellite("S0")
-    m0 = b.get_master("M0")
-    r1 = b.get_master("R1_master")
-
-    s0.send(HiveMessage(HiveMessageType.ESCALATE,
-                        payload=HiveMessage(HiveMessageType.BUS,
-                                            payload=Message("some.event", {}))))
-
-    # Relay forwarded it upstream
-    r1.recorder.assert_received(HiveMessageType.ESCALATE)
-    # Top master received it
-    m0.recorder.assert_received(HiveMessageType.ESCALATE)
-    # No downstream delivery — ESCALATE goes up only
-    s0.recorder.assert_not_received(HiveMessageType.ESCALATE, direction="in")
+```
+tests/
+├── topology/           # multi-relay chains, deep nesting, mixed-protocol topologies
+├── stress/             # 50+ satellites, sustained-load, protocol-limit scenarios
+├── cross_repo/         # embedded clients, audio transformers, micropython, interop
+├── skills_e2e/         # real OVOS skills through HiveMind (OvoscopeAgentProtocol)
+└── _pending_migration/ # single-repo tests awaiting move to their owning repos
 ```
 
-## Installation
+### topology/
+
+Multi-hop relay chains, hierarchical hubs, ACL across relay boundaries, and routing correctness for complex topologies that cannot be expressed as a single-repo unit test.
+
+### stress/
+
+High-cardinality scenarios: large satellite fan-out, concurrent connections, protocol limits.
+
+### cross_repo/
+
+Interoperability tests: embedded clients, micropython clients, JS e2e, audio transformer pipelines. These require more than one repo to reproduce.
+
+### skills_e2e/
+
+End-to-end skill execution through HiveMind using `OvoscopeAgentProtocol` (real MiniCroft). Tests cover utterance routing, converse, get_response, session, stop, PHAL, scheduler, and OCP.
+
+### _pending_migration/
+
+Single-repo protocol tests that still run here while their target repos adopt hivescope. See [`tests/_pending_migration/README.md`](tests/_pending_migration/README.md) for the migration table.
+
+## Install
 
 ```bash
-uv pip install -e ../hivemind-core
-uv pip install -e ../hivemind-websocket-client
-uv pip install -e ../hivemind-plugin-manager
-uv pip install -e ../poorman_handshake
-uv pip install -e .[dev]
+pip install "hivescope @ git+https://github.com/JarbasHiveMind/hivescope@dev"
+pip install -e .[dev]
+```
+
+For skill e2e tests (optional):
+
+```bash
+pip install -e .[ovos]
 ```
 
 ## Running Tests
 
 ```bash
-uv run pytest tests/ -v --timeout=60 -m "not slow"    # standard run (~320 tests)
-uv run pytest tests/ -v --timeout=120                  # include stress tests
-uv run pytest tests/test_handshake.py -v               # single module
+# Standard run (excludes slow/stress)
+pytest tests/ -v --timeout=60 -m "not slow"
+
+# Include stress tests
+pytest tests/ -v --timeout=120
+
+# One suite
+pytest tests/topology/ -v
+pytest tests/cross_repo/ -v
+pytest tests/skills_e2e/ -v
 ```
+
+## Dependency
+
+The in-process simulator (TopologyBuilder, MasterNode, SatelliteNode, RelayNode, fixtures, assertions, preset scenarios) lives in [hivescope](https://github.com/JarbasHiveMind/hivescope). API reference for those classes belongs in hivescope's documentation.
+
+## License
+
+AGPL-3.0
