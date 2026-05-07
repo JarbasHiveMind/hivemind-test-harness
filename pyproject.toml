@@ -22,7 +22,7 @@ classifiers = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-    "hivescope @ git+https://github.com/JarbasHiveMind/hivescope@master",
+    "hivescope @ git+https://github.com/JarbasHiveMind/hivescope@dev",
     "pytest>=7.4",
     "pytest-asyncio>=0.21",
     "pytest-timeout",
