@@ -12,7 +12,7 @@ Node roles
   Dual-role — a node that is simultaneously a satellite (connected upstream)
               AND a master (accepting downstream satellites), sharing one
               agent bus/AI brain.  The harness calls this a **relay** and
-              models it as a :class:`~hivemind_test_harness.topology.RelayNode`.
+              models it as a :class:`~hivescope.topology.RelayNode`.
 
 Topology catalogue
 ──────────────────
@@ -37,7 +37,7 @@ Topology catalogue
 """
 import random
 import pytest
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
 
 
 # ---------------------------------------------------------------------------
