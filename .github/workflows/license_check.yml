@@ -8,3 +8,9 @@ on:
 jobs:
   license_check:
     uses: OpenVoiceOS/gh-automations/.github/workflows/license-check.yml@dev
+    with:
+      # hivemind-core (AGPL) is the protocol the harness exercises; hivemind-
+      # test-harness and hivescope themselves only resolve as 'Error' because
+      # they're not on PyPI (this repo isn't shipped, hivescope is git-only).
+      # Exclude all three from the audit.
+      exclude_packages: '(?i)^(hivemind-core|hivemind[-_]test[-_]harness|hivescope).*'
