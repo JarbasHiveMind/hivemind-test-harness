@@ -1,0 +1,52 @@
+name: Build Tests
+
+on:
+  pull_request:
+    branches: [dev, master]
+  workflow_dispatch:
+    inputs:
+      run_slow:
+        description: "Run slow/skills_e2e tests (spin up large topologies)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install hivescope (git dep)
+        run: |
+          pip install "git+https://github.com/JarbasHiveMind/hivescope@dev"
+
+      - name: Install repo and extras
+        run: |
+          pip install -e ".[plot,ovos]"
+
+      - name: Run fast tests
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_slow != 'true' }}
+        run: |
+          pytest tests/ -v --tb=short \
+            -m "not slow" \
+            --ignore=tests/skills_e2e \
+            --ignore=tests/_pending_migration \
+            --timeout=120
+
+      - name: Run all tests including slow (opt-in)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_slow == 'true' }}
+        run: |
+          pytest tests/ -v --tb=short \
+            --ignore=tests/_pending_migration \
+            --timeout=300
