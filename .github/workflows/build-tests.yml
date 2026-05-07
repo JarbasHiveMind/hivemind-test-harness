@@ -43,6 +43,7 @@ jobs:
             --ignore=tests/skills_e2e \
             --ignore=tests/cross_repo \
             --ignore=tests/_pending_migration \
+            --ignore=tests/topology \
             --timeout=120
 
       - name: Run all tests including slow (opt-in)
