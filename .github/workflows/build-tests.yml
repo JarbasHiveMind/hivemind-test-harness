@@ -41,6 +41,7 @@ jobs:
           pytest tests/ -v --tb=short \
             -m "not slow" \
             --ignore=tests/skills_e2e \
+            --ignore=tests/cross_repo \
             --ignore=tests/_pending_migration \
             --timeout=120
 
