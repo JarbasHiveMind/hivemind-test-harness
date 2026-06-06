@@ -23,7 +23,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install "hivemind-ovos-agent-plugin==0.3.0a4"
+          pip install "hivemind-ovos-agent-plugin==0.3.1a1" "hivemind-plugin-manager==0.7.1a1" "hivemind-bus-client==0.9.2a1" "hivescope==0.5.0a2"
           pip install -e .[dev]
       - name: Run fast protocol tests
         # live-OVOS, plot and embedded-runtime modules are skipped at collection
