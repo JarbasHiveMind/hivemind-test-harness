@@ -410,7 +410,8 @@ def pytest_ignore_collect(collection_path, config):
         return False
     optional = [
         ("ovoscope", "ovos_workshop"),    # live-OVOS (ovoscope/ovos-core)
-        ("matplotlib", "matplotlib"),     # topology plots
+        ("matplotlib", "matplotlib"),     # direct matplotlib use
+        ("topology_plot", "matplotlib"),  # imports hivescope.topology_plot -> matplotlib
         ("from hivemind.", "hivemind"),   # embedded micropython/js interop lib
     ]
     for marker, mod in optional:
