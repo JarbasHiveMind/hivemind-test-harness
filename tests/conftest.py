@@ -12,7 +12,7 @@ Node roles
   Dual-role — a node that is simultaneously a satellite (connected upstream)
               AND a master (accepting downstream satellites), sharing one
               agent bus/AI brain.  The harness calls this a **relay** and
-              models it as a :class:`~hivemind_test_harness.topology.RelayNode`.
+              models it as a :class:`~hivescope.topology.RelayNode`.
 
 Topology catalogue
 ──────────────────
@@ -37,7 +37,7 @@ Topology catalogue
 """
 import random
 import pytest
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
 
 
 # ---------------------------------------------------------------------------
@@ -331,3 +331,26 @@ def wait_for_satellite_message(satellite, msg_type: str, timeout: float = 10.0):
     satellite.internal_bus.once(msg_type, _on_msg)
     event.wait(timeout=timeout)
     return result[0] if result else None
+
+
+# ---------------------------------------------------------------------------
+# Auto-mark live-OVOS tests as `slow`
+# ---------------------------------------------------------------------------
+import functools as _functools  # noqa: E402
+import pytest as _pytest  # noqa: E402
+
+
+@_functools.lru_cache(maxsize=None)
+def _module_uses_ovoscope(path: str) -> bool:
+    try:
+        return "ovoscope" in open(path).read()
+    except Exception:
+        return False
+
+
+def pytest_collection_modifyitems(config, items):
+    """Tests that stand up a real OVOS stack (ovoscope/MiniCroft) are heavy;
+    auto-tag them `slow` so the fast CI job can deselect with -m 'not slow'."""
+    for item in items:
+        if _module_uses_ovoscope(str(item.fspath)):
+            item.add_marker(_pytest.mark.slow)

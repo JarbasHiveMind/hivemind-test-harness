@@ -33,8 +33,8 @@ from ovos_bus_client.message import Message
 from ovos_workshop.decorators import intent_handler
 from ovos_workshop.skills import OVOSSkill
 
-from hivemind_test_harness.plugins.ovoscope_agent import OvoscopeAgentProtocol
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
+from hivescope.topology import TopologyBuilder
 from tests.conftest import (
     SKILL_EASTER_EGGS,
     skill_missing, make_utterance, wait_for_satellite_message,

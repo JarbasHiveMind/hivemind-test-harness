@@ -242,7 +242,7 @@ class TestBroadcastAllTopologies:
     """BROADCAST from an admin satellite reaches all direct siblings."""
 
     def _admin_topology(self, n_extra: int = 2):
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True)
@@ -302,7 +302,7 @@ class TestSharedBusAllTopologies:
     """SHARED_BUS enables passive eavesdropping on a satellite's internal bus."""
 
     def _shared_topology(self):
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True)

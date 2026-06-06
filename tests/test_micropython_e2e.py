@@ -23,7 +23,7 @@ if str(_MP_CLIENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_MP_CLIENT_ROOT))
 
 from hivemind.client import HiveMindClient, STATE_READY, STATE_DISCONNECTED
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 

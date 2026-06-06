@@ -4,10 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hivemind-test-harness"
-version = "0.1.0"
-description = "In-process end-to-end test framework for the HiveMind protocol"
-requires-python = ">=3.9"
-dependencies = []  # all come from the workspace editable installs
+version = "0.2.0"
+description = "End-to-end test suite for the HiveMind protocol, built on hivescope"
+requires-python = ">=3.10"
+# The in-process topology/agent/recorder framework lives in hivescope; the
+# protocol under test is hivemind-core + the agent/plugin stack.
+dependencies = [
+    "hivescope>=0.5.0a1",
+    "hivemind-core>=4.6.0a1",
+    "hivemind-plugin-manager>=0.7.0a1",
+    "hivemind-bus-client>=0.9.1a1",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -15,7 +22,13 @@ dev = [
     "pytest-asyncio>=0.21",
     "pytest-timeout",
     "pytest-cov",
-    "websockets>=11",
+    "websockets>=13",
+]
+# live-OVOS tests (the `slow` marker): a real OVOS stack via ovoscope/MiniCroft
+ovoscope = [
+    "ovoscope",
+    "ovos-core",
+    "ovos-skill-hello-world",
 ]
 plot = [
     "matplotlib>=3.5",
@@ -23,9 +36,10 @@ plot = [
 ]
 
 [tool.pytest.ini_options]
-timeout = 30
+timeout = 90
 markers = [
-    "slow: tests that spin up large topologies (deselect with -m 'not slow')",
+    "slow: heavy tests — large topologies or live OVOS via ovoscope/MiniCroft (deselect with -m 'not slow')",
+    "embedded: tests that need an external runtime (node.js / micropython)",
 ]
 
 [tool.setuptools.packages.find]

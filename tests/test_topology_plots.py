@@ -26,8 +26,8 @@ from pathlib import Path
 import pytest
 
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
-from hivemind_test_harness.topology import TopologyBuilder
-from hivemind_test_harness.topology_plot import (
+from hivescope.topology import TopologyBuilder
+from hivescope.topology_plot import (
     plot_topology_builder,
     plot_hive_mapper,
     plot_topology_and_discovery,

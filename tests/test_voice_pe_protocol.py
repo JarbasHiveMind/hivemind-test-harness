@@ -274,7 +274,7 @@ class TestSpeakSynth:
 
     def test_speak_synth_request(self):
         """speak:synth requires explicit allowed_types since it's non-standard."""
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"),

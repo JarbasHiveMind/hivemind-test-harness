@@ -1,4 +1,5 @@
-from hivemind_test_harness.topology import TopologyBuilder
-from hivemind_test_harness.node import MasterNode, SatelliteNode
+"""hivemind-test-harness — the HiveMind protocol's end-to-end test suite.
 
-__all__ = ["TopologyBuilder", "MasterNode", "SatelliteNode"]
+This repository is tests only: the in-process topology/agent/recorder framework
+it used to vendor now lives in **hivescope**, which the tests import directly.
+"""

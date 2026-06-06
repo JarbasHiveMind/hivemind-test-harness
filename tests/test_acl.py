@@ -4,7 +4,7 @@ TS-ACL-01..03 — Access Control & Blacklisting scenarios.
 import pytest
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
 
 
 class TestMessageBlacklist:

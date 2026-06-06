@@ -17,8 +17,8 @@ import pytest
 import pybase64
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType, HiveMindBinaryPayloadType
-from hivemind_test_harness.topology import TopologyBuilder
-from hivemind_test_harness.node import MasterNode, SatelliteNode
+from hivescope.topology import TopologyBuilder
+from hivescope.node import MasterNode, SatelliteNode
 
 
 # ---------------------------------------------------------------------------
@@ -45,8 +45,8 @@ class TestWrongPasswordDisconnects:
         # Now try to connect a satellite with the wrong password.
         # We create a node whose identity has a different password than the master expects.
         import tempfile, os
-        from hivemind_test_harness.node import SatelliteNode
-        from hivemind_test_harness.utils import make_identity
+        from hivescope.node import SatelliteNode
+        from hivescope.utils import make_identity
 
         wrong_identity = make_identity("wrong-sat", password="definitely-wrong-password")
         # The master's DB entry for any new connection uses the password from the DB;

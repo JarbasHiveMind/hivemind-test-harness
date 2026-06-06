@@ -47,7 +47,7 @@ from unittest.mock import patch
 
 import pytest
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
 
 # Mirror of conftest._HUGE_HIVE_COUNTS — same seed so the counts are identical.
 _HUGE_HIVE_SEED = 2026

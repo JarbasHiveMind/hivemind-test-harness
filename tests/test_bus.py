@@ -146,4 +146,4 @@ class TestMultipleSatellitesBus:
 
 
 # resolve forward reference used in test_unauthorized_type_is_dropped
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder

@@ -38,7 +38,7 @@ from hivemind.client import (
 from hivemind.binary import BIN_RAW_AUDIO, MSG_BINARY
 
 # Import test harness
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
 from ovos_bus_client.message import Message
 
 
