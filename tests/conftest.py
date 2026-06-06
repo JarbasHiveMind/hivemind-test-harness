@@ -55,6 +55,8 @@ LEGIT_TYPES = [
     "recognizer_loop:utterance", "speak", "ovos.utterance.handled",
     "recognizer_loop:record_begin", "recognizer_loop:record_end",
     "recognizer_loop:wakeword", "recognizer_loop:audio_output_end", "speak:synth",
+    # Voice PE: base64 STT/TTS paths
+    "recognizer_loop:b64_transcribe", "speak:b64_audio",
     "test.event", "test.query", "test.cascade", "test.intercom",
     "test.intercom.rsa", "test.normal.event", "test.shared.event",
     "some.internal.event",
