@@ -41,6 +41,44 @@ from hivescope.topology import TopologyBuilder
 
 
 # ---------------------------------------------------------------------------
+# Default ACL for test satellites
+#
+# hivemind-core's MessageTypeACLPolicy is deny-by-default: a client may only
+# inject message types listed in its allowed_types whitelist. These topology
+# fixtures predate that policy, so without a grant every injected utterance is
+# denied. Hand test satellites a permissive default of the *legit* message
+# types the suite uses; deny-tests still pass their own restricted lists
+# explicitly (setdefault leaves those untouched), so genuinely-unauthorized
+# types keep failing closed.
+# ---------------------------------------------------------------------------
+LEGIT_TYPES = [
+    "recognizer_loop:utterance", "speak", "ovos.utterance.handled",
+    "recognizer_loop:record_begin", "recognizer_loop:record_end",
+    "recognizer_loop:wakeword", "recognizer_loop:audio_output_end", "speak:synth",
+    "test.event", "test.query", "test.cascade", "test.intercom",
+    "test.intercom.rsa", "test.normal.event", "test.shared.event",
+    "some.internal.event",
+]
+
+_orig_add_satellite = TopologyBuilder.add_satellite
+_orig_add_relay = TopologyBuilder.add_relay
+
+
+def _add_satellite_acl(self, name, upstream, shared_bus=False, **kw):
+    kw.setdefault("allowed_types", list(LEGIT_TYPES))
+    return _orig_add_satellite(self, name, upstream, shared_bus=shared_bus, **kw)
+
+
+def _add_relay_acl(self, name, upstream, **kw):
+    kw.setdefault("allowed_types", list(LEGIT_TYPES))
+    return _orig_add_relay(self, name, upstream, **kw)
+
+
+TopologyBuilder.add_satellite = _add_satellite_acl
+TopologyBuilder.add_relay = _add_relay_acl
+
+
+# ---------------------------------------------------------------------------
 # T1 — minimal
 # ---------------------------------------------------------------------------
 
