@@ -392,3 +392,22 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if _module_uses_ovoscope(str(item.fspath)):
             item.add_marker(_pytest.mark.slow)
+
+
+def pytest_ignore_collect(collection_path, config):
+    """Skip collecting modules whose heavy deps aren't installed: live-OVOS
+    (ovoscope/ovos-core) and plot (matplotlib) modules import them at module
+    level, which would break collection in the fast FakeBus job. They are
+    collected and run in the ovoscope job where those deps are present."""
+    import importlib.util
+    p = str(collection_path)
+    if not p.endswith(".py"):
+        return False
+    if _module_uses_ovoscope(p) and importlib.util.find_spec("ovos_workshop") is None:
+        return True
+    try:
+        if "matplotlib" in open(p).read() and importlib.util.find_spec("matplotlib") is None:
+            return True
+    except Exception:
+        pass
+    return False
