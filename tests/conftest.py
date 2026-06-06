@@ -417,4 +417,9 @@ def pytest_ignore_collect(collection_path, config):
     for marker, mod in optional:
         if marker in src and importlib.util.find_spec(mod) is None:
             return True
+    # embedded tests that shell out to an external runtime
+    import shutil
+    for fname, binary in (("test_js_e2e", "node"), ("micropython", "micropython")):
+        if fname in p and shutil.which(binary) is None:
+            return True
     return False

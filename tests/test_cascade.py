@@ -44,6 +44,10 @@ def _setup_agent_responder(master_node, query_id: str, answer: str = "sunny"):
                             "destination": msg.context.get("peer"),
                             "source": "skills"})
             bus.emit(resp)
+            # signal end-of-query so natural_language_query stops streaming
+            # promptly instead of waiting out its timeout
+            bus.emit(Message("ovos.utterance.handled", {},
+                             {"query_id": query_id}))
 
     bus.on("recognizer_loop:utterance", _responder)
 
