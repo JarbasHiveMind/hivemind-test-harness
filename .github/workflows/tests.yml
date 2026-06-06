@@ -25,14 +25,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
       - name: Run fast protocol tests
-        # live-OVOS (slow) and embedded-runtime tests run elsewhere
-        run: >-
-          pytest tests/ -m "not slow and not embedded" --tb=short -q
-          --ignore=tests/test_embedded_clients.py
-          --ignore=tests/test_embedded_comprehensive.py
-          --ignore=tests/test_embedded_interop.py
-          --ignore=tests/test_micropython_e2e.py
-          --ignore=tests/test_js_e2e.py
+        # live-OVOS, plot and embedded-runtime modules are skipped at collection
+        # (their deps aren't installed here); FakeBus `slow` topologies deselected
+        run: pytest tests/ -m "not slow" --tb=short -q
 
   ovoscope:
     name: Live-OVOS tests (ovoscope/MiniCroft)

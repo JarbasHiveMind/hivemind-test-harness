@@ -395,19 +395,25 @@ def pytest_collection_modifyitems(config, items):
 
 
 def pytest_ignore_collect(collection_path, config):
-    """Skip collecting modules whose heavy deps aren't installed: live-OVOS
-    (ovoscope/ovos-core) and plot (matplotlib) modules import them at module
-    level, which would break collection in the fast FakeBus job. They are
-    collected and run in the ovoscope job where those deps are present."""
+    """Skip collecting modules whose optional deps aren't installed, so the fast
+    FakeBus job stays importable. Each pair is (import marker, module that must
+    resolve): live-OVOS modules need ovos-core, plot modules need matplotlib,
+    embedded interop modules need the micropython/js `hivemind` lib. These run
+    in the jobs where their deps are present."""
     import importlib.util
     p = str(collection_path)
     if not p.endswith(".py"):
         return False
-    if _module_uses_ovoscope(p) and importlib.util.find_spec("ovos_workshop") is None:
-        return True
     try:
-        if "matplotlib" in open(p).read() and importlib.util.find_spec("matplotlib") is None:
-            return True
+        src = open(p).read()
     except Exception:
-        pass
+        return False
+    optional = [
+        ("ovoscope", "ovos_workshop"),    # live-OVOS (ovoscope/ovos-core)
+        ("matplotlib", "matplotlib"),     # topology plots
+        ("from hivemind.", "hivemind"),   # embedded micropython/js interop lib
+    ]
+    for marker, mod in optional:
+        if marker in src and importlib.util.find_spec(mod) is None:
+            return True
     return False
