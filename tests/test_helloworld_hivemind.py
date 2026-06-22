@@ -124,7 +124,11 @@ def hw_topology():
 
     b = TopologyBuilder()
     b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
+    # hivemind-core is deny-by-default / whitelist-only: the satellite must be
+    # granted recognizer_loop:utterance or its utterances are policy-denied at
+    # admission and never reach MiniCroft (the agent records nothing).
+    b.add_satellite("S0", upstream=b.get_master("M0"),
+                    allowed_types=["recognizer_loop:utterance"])
     b.start_all()
     yield b, agent
     b.stop_all()
