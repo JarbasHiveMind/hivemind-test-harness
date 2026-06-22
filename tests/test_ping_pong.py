@@ -292,6 +292,13 @@ class TestHiveMapperIntegration:
         assert "[self]" in ascii_map, \
             f"Root peer should be labelled [self].\nGot:\n{ascii_map}"
 
+    @pytest.mark.xfail(
+        reason="NodeInfo (hivemind_bus_client.hive_map) currently exposes no "
+               "rtt_ms field (fields: peer/site_id/timestamp/received_at/"
+               "public_key/lang/trusted). RTT-on-NodeInfo is not implemented; "
+               "tracked in hivemind-test-harness#6.",
+        strict=False,
+    )
     def test_node_info_rtt_available(self, minimal_topology):
         b = minimal_topology
         m0 = b.get_master("M0")
