@@ -22,16 +22,10 @@ from hivescope.topology import TopologyBuilder
 
 # These exercise the production HiveMessageBusClient over a REAL localhost
 # WebSocket (LoopbackNetworkProtocol), unlike the rest of the suite which uses
-# the in-process simulator. On the current stack the loopback handshake errors
-# at the WebSocket frame layer (RuntimeError <websocket._abnf.ABNF ...>) and the
-# tests then hang until the per-test timeout. Skipped until the real-socket
-# handshake is fixed — tracked in hivemind-test-harness#6. Run explicitly with
-# `-p no:cacheprovider --override-ini=addopts= --deselect ... ` once resolved.
-pytestmark = pytest.mark.skip(
-    reason="real-socket loopback WebSocket handshake errors/hangs on the "
-           "current stack (websocket ABNF frame error); tracked in "
-           "hivemind-test-harness#6"
-)
+# the in-process simulator. They pass once hivescope's loopback server stops
+# passing the removed msg_/skill_/intent_blacklist kwargs to
+# HiveMindClientConnection (whitelist-only model) — without that fix the server
+# handler crashed mid-handshake and these hung to timeout.
 
 
 def _extract_host_port(url: str):
@@ -71,7 +65,9 @@ class TestHiveMessageBusClientHandshake:
         """Client reaches handshake completion against loopback hub."""
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("test-key", password="test-password")
+        # whitelist-only ACL: grant the types this satellite injects.
+        m.register_satellite("test-key", password="test-password",
+                             allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
@@ -136,7 +132,9 @@ class TestHiveMessageBusClientBusMessages:
         """Client sends recognizer_loop:utterance, hub receives it."""
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("test-key", password="test-password")
+        # whitelist-only ACL: grant the types this satellite injects.
+        m.register_satellite("test-key", password="test-password",
+                             allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
@@ -167,7 +165,9 @@ class TestHiveMessageBusClientBusMessages:
         """Hub sends speak BUS message, client receives it on internal bus."""
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("test-key", password="test-password")
+        # whitelist-only ACL: grant the types this satellite injects.
+        m.register_satellite("test-key", password="test-password",
+                             allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
@@ -211,7 +211,9 @@ class TestHiveMessageBusClientBinaryData:
 
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("test-key", password="test-password")
+        # whitelist-only ACL: grant the types this satellite injects.
+        m.register_satellite("test-key", password="test-password",
+                             allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
