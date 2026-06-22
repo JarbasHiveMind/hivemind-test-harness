@@ -44,6 +44,19 @@ from hivescope.topology import TopologyBuilder
 # admin_satellite, restricted_satellite) so they are available repo-wide.
 pytest_plugins = ["hivescope.pytest_fixtures"]
 
+# Standard satellite→master voice/audio message types a normal satellite is
+# granted (hivemind-core is deny-by-default / whitelist-only). Tests that
+# exercise ACL restriction build their own topologies with explicit
+# allowed_types instead of these fixtures; non-standard types (e.g.
+# speak:synth) are still denied by default and granted per-test where needed.
+_VOICE_TYPES = [
+    "recognizer_loop:utterance",
+    "recognizer_loop:record_begin",
+    "recognizer_loop:record_end",
+    "recognizer_loop:b64_transcribe",
+    "speak:b64_audio",
+]
+
 
 # ---------------------------------------------------------------------------
 # T1 — minimal
@@ -54,7 +67,7 @@ def minimal_topology():
     """T1: 1 master, 1 satellite."""
     b = TopologyBuilder()
     b.add_master("M0")
-    b.add_satellite("S0", upstream=b.get_master("M0"))
+    b.add_satellite("S0", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
     b.start_all()
     yield b
     b.stop_all()
@@ -71,7 +84,7 @@ def star_topology(request):
     b = TopologyBuilder()
     b.add_master("M0")
     for i in range(n):
-        b.add_satellite(f"S{i}", upstream=b.get_master("M0"))
+        b.add_satellite(f"S{i}", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
     b.start_all()
     yield b
     b.stop_all()
@@ -82,9 +95,9 @@ def admin_star_topology():
     """T2 variant: 1 master, 3 satellites where S0 is admin."""
     b = TopologyBuilder()
     b.add_master("M0")
-    b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True)
-    b.add_satellite("S1", upstream=b.get_master("M0"))
-    b.add_satellite("S2", upstream=b.get_master("M0"))
+    b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True, allowed_types=_VOICE_TYPES)
+    b.add_satellite("S1", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
+    b.add_satellite("S2", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
     b.start_all()
     yield b
     b.stop_all()
@@ -100,7 +113,7 @@ def chain_topology():
     b = TopologyBuilder()
     b.add_master("M0")
     _, relay_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=relay_master)
+    b.add_satellite("S0", upstream=relay_master, allowed_types=_VOICE_TYPES)
     b.start_all()
     yield b
     b.stop_all()
@@ -113,7 +126,7 @@ def deep_chain_topology():
     b.add_master("M0")
     _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
     _, r2_master = b.add_relay("R2", upstream=r1_master)
-    b.add_satellite("S0", upstream=r2_master)
+    b.add_satellite("S0", upstream=r2_master, allowed_types=_VOICE_TYPES)
     b.start_all()
     yield b
     b.stop_all()
@@ -154,7 +167,7 @@ def huge_hive_topology():
     for relay_idx, n_sats in enumerate(_HUGE_HIVE_COUNTS):
         _, rm = b.add_relay(f"RM{relay_idx}", upstream=b.get_master("M0"))
         for _ in range(n_sats):
-            b.add_satellite(f"HS{sat_idx}", upstream=rm)
+            b.add_satellite(f"HS{sat_idx}", upstream=rm, allowed_types=_VOICE_TYPES)
             sat_idx += 1
 
     b.start_all()
@@ -199,21 +212,21 @@ def chaotic_hive_topology():
 
     # R1: relay off M0, serves S0, S1, S2
     _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=r1_master)
-    b.add_satellite("S1", upstream=r1_master)
-    b.add_satellite("S2", upstream=r1_master)
+    b.add_satellite("S0", upstream=r1_master, allowed_types=_VOICE_TYPES)
+    b.add_satellite("S1", upstream=r1_master, allowed_types=_VOICE_TYPES)
+    b.add_satellite("S2", upstream=r1_master, allowed_types=_VOICE_TYPES)
 
     # R2: relay off M0, serves S3 and a nested relay R3
     _, r2_master = b.add_relay("R2", upstream=b.get_master("M0"))
-    b.add_satellite("S3", upstream=r2_master)
+    b.add_satellite("S3", upstream=r2_master, allowed_types=_VOICE_TYPES)
 
     # R3: nested relay off R2, serves S4, S5
     _, r3_master = b.add_relay("R3", upstream=r2_master)
-    b.add_satellite("S4", upstream=r3_master)
-    b.add_satellite("S5", upstream=r3_master)
+    b.add_satellite("S4", upstream=r3_master, allowed_types=_VOICE_TYPES)
+    b.add_satellite("S5", upstream=r3_master, allowed_types=_VOICE_TYPES)
 
     # S6: direct satellite of root M0
-    b.add_satellite("S6", upstream=b.get_master("M0"))
+    b.add_satellite("S6", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
 
     b.start_all()
     yield b
@@ -254,11 +267,11 @@ def asymmetric_hive_topology():
     current_master = b.get_master("M0")
     for i in range(_DEPTH):
         _, current_master = b.add_relay(f"RA{i}", upstream=current_master)
-    b.add_satellite("S_deep", upstream=current_master)
+    b.add_satellite("S_deep", upstream=current_master, allowed_types=_VOICE_TYPES)
 
     # Short arms: 3 direct satellites of M0
     for i in range(3):
-        b.add_satellite(f"S_short{i}", upstream=b.get_master("M0"))
+        b.add_satellite(f"S_short{i}", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
 
     b.start_all()
     yield b
