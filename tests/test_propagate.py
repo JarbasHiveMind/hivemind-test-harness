@@ -73,7 +73,7 @@ class TestPropagateCannotPropagate:
     """TS-PROP-02 — satellite with can_propagate=False is rejected."""
 
     def test_illegal_propagate_fires_callback(self):
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"), can_propagate=False)

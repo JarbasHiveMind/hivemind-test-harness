@@ -21,8 +21,8 @@ import json
 import pybase64
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
-from hivemind_test_harness.topology import TopologyBuilder
-from hivemind_test_harness.node import MasterNode, SatelliteNode
+from hivescope.topology import TopologyBuilder
+from hivescope.node import MasterNode, SatelliteNode
 
 
 def _intercom_msg(target_pubkey=None):

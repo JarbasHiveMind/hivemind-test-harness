@@ -10,7 +10,7 @@ import pytest
 from ovos_bus_client.message import Message
 
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
 
 
 def _query_msg(utterance: str = "what is 2+2?",

@@ -2,8 +2,8 @@
 TS-CONN-01..08 — Connection & Handshake scenarios.
 """
 import pytest
-from hivemind_test_harness.topology import TopologyBuilder
-from hivemind_test_harness.node import MasterNode, SatelliteNode
+from hivescope.topology import TopologyBuilder
+from hivescope.node import MasterNode, SatelliteNode
 from hivemind_bus_client.message import HiveMessageType
 
 

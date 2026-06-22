@@ -146,7 +146,7 @@ class TestTransportAlwaysForwards:
 
     def test_broadcast_reaches_all_peers(self):
         """BROADCAST from admin satellite reaches all siblings."""
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True)
@@ -186,7 +186,7 @@ class TestIllegalActionsDisconnect:
 
     def test_cant_propagate_disconnects(self):
         """Satellite with can_propagate=False is disconnected on PROPAGATE."""
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"),
@@ -202,7 +202,7 @@ class TestIllegalActionsDisconnect:
 
     def test_cant_escalate_disconnects(self):
         """Satellite with can_escalate=False is disconnected on ESCALATE."""
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"),
@@ -243,7 +243,7 @@ class TestRelayTransparency:
         """ESCALATE goes upstream only, never to peer satellites."""
         b = chain_topology
         # Add another satellite to R1_master to verify it does NOT receive
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         # Use chain_topology which has M0 → R1 → S0
         # R1_master has no other satellites besides S0 in this topology,
         # so just verify M0 receives it and the escalate_callback fires

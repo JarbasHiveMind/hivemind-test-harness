@@ -3,9 +3,15 @@ Name: hivemind-test-harness
 Version: 0.1.0
 Summary: In-process end-to-end test framework for the HiveMind protocol
 Requires-Python: >=3.9
+Requires-Dist: hivescope>=0.5.0a2
 Provides-Extra: dev
 Requires-Dist: pytest>=7.4; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21; extra == "dev"
 Requires-Dist: pytest-timeout; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
+Requires-Dist: websockets>=11; extra == "dev"
+Provides-Extra: ovos
+Requires-Dist: hivescope[ovos]>=0.5.0a2; extra == "ovos"
 Provides-Extra: plot
 Requires-Dist: matplotlib>=3.5; extra == "plot"
 Requires-Dist: networkx>=3.0; extra == "plot"
