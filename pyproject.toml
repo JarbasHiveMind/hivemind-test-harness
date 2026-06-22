@@ -37,6 +37,10 @@ ovos = [
     "ovos-padatious>=1.4.2,<2.0.0",
     "ovos-skill-hello-world",
     "ovos-skill-date-time",
+    # SG-7: the ovos-m2v intent pipeline ships sklearn-pickled models trained
+    # on sklearn 1.6.x; sklearn>=1.7 unpickles them with InconsistentVersion
+    # warnings and degraded matching. Pin to the training series.
+    "scikit-learn<1.7",
 ]
 plot = [
     "matplotlib>=3.5",
