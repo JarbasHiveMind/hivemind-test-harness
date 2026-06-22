@@ -23,6 +23,9 @@ dev = [
     "pytest-timeout",
     "pytest-cov",
     "websockets>=11",
+    # cross-repo packages whose code the harness imports directly in tests
+    # (e.g. test_audio_transformers imports hivemind_audio_binary_protocol).
+    "hivemind-audio-binary-protocol",
 ]
 # Live OVOS skill execution through HiveMind (MiniCroft-backed agent). Mirrors
 # hivescope's own ``ovos`` extra.

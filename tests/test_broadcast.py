@@ -55,12 +55,14 @@ class TestBroadcastFromAdminSatellite:
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")  # admin
 
-        # S1 and S2 should receive the broadcast from S0 via M0
+        # S1 and S2 should receive the broadcast content from S0 via M0. core
+        # forwards the unpacked inner payload to peers, so siblings see the BUS
+        # content rather than the BROADCAST wrapper.
         s1_received = []
         s2_received = []
-        b.get_satellite("S1").shim.emitter.on(HiveMessageType.BROADCAST,
+        b.get_satellite("S1").shim.emitter.on(HiveMessageType.BUS,
                                                s1_received.append)
-        b.get_satellite("S2").shim.emitter.on(HiveMessageType.BROADCAST,
+        b.get_satellite("S2").shim.emitter.on(HiveMessageType.BUS,
                                                s2_received.append)
 
         s0.send(_broadcast_msg())
