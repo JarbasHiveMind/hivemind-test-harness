@@ -13,12 +13,31 @@ Test IDs:
 """
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
-_MP_CLIENT_ROOT = Path(__file__).resolve().parents[2] / "hivemind-micropython-client"
+
+def _find_mp_client_root() -> Path:
+    """Locate the hivemind-micropython-client checkout (see env override)."""
+    env = os.environ.get("HIVEMIND_MICROPYTHON_CLIENT")
+    if env:
+        return Path(env).resolve()
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[2] / "hivemind-micropython-client",
+        here.parents[3] / "clients" / "hivemind-micropython-client",
+        here.parents[2] / "clients" / "hivemind-micropython-client",
+    ]
+    for cand in candidates:
+        if (cand / "hivemind" / "client.py").exists():
+            return cand
+    return candidates[0]
+
+
+_MP_CLIENT_ROOT = _find_mp_client_root()
 if str(_MP_CLIENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_MP_CLIENT_ROOT))
 
@@ -81,7 +100,11 @@ class TestMicroPythonE2E:
         """MPY-E2E-02: Client sends utterance, hub records BUS message."""
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("mpy-key", password="mpy-password")
+        # hivemind-core is whitelist-only: grant the type the client injects.
+        m.register_satellite(
+            "mpy-key", password="mpy-password",
+            allowed_types=["recognizer_loop:utterance"],
+        )
         b.start_all()
 
         try:
@@ -157,8 +180,14 @@ class TestMicroPythonE2E:
         """MPY-E2E-04: Two clients connect and send independently."""
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("mpy-1", password="pwd1")
-        m.register_satellite("mpy-2", password="pwd2")
+        m.register_satellite(
+            "mpy-1", password="pwd1",
+            allowed_types=["recognizer_loop:utterance"],
+        )
+        m.register_satellite(
+            "mpy-2", password="pwd2",
+            allowed_types=["recognizer_loop:utterance"],
+        )
         b.start_all()
 
         try:

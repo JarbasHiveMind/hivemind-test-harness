@@ -16,6 +16,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # The embedded / MicroPython tests import the pure-Python-compatible
+    # `hivemind` package straight from the MicroPython client checkout (it has
+    # no pyproject, so it is not pip-installable). Place it next to the harness
+    # so the tests' path resolver finds it.
+    - name: Checkout MicroPython client
+      uses: actions/checkout@v4
+      with:
+        repository: JarbasHiveMind/hivemind-micropython-client
+        path: hivemind-micropython-client
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
@@ -33,6 +43,8 @@ jobs:
         uv pip install pytest-asyncio
 
     - name: Run tests
+      env:
+        HIVEMIND_MICROPYTHON_CLIENT: ${{ github.workspace }}/hivemind-micropython-client
       run: |
         uv run pytest tests/ -v --tb=short -m "not slow"
 

@@ -9,13 +9,32 @@ Tests focus on:
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
+
 # Import MicroPython client crypto module
-_MP_CLIENT_ROOT = Path(__file__).resolve().parents[2] / "hivemind-micropython-client"
+def _find_mp_client_root() -> Path:
+    """Locate the hivemind-micropython-client checkout (see env override)."""
+    env = os.environ.get("HIVEMIND_MICROPYTHON_CLIENT")
+    if env:
+        return Path(env).resolve()
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[2] / "hivemind-micropython-client",
+        here.parents[3] / "clients" / "hivemind-micropython-client",
+        here.parents[2] / "clients" / "hivemind-micropython-client",
+    ]
+    for cand in candidates:
+        if (cand / "hivemind" / "client.py").exists():
+            return cand
+    return candidates[0]
+
+
+_MP_CLIENT_ROOT = _find_mp_client_root()
 if str(_MP_CLIENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_MP_CLIENT_ROOT))
 
