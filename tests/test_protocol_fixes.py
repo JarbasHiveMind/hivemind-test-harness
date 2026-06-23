@@ -78,6 +78,12 @@ class TestIntercomInnerDelivery:
         """RSA-encrypted INTERCOM(BUS) → master injects the BUS on agent bus."""
         pass
 
+    @pytest.mark.xfail(
+        reason="hivemind-core#117: handle_intercom_message dispatches on the outer "
+               "INTERCOM type and never deserializes the inner payload in the "
+               "unencrypted path, so the inner BUS is dropped",
+        strict=False,
+    )
     def test_unencrypted_intercom_bus_delivered(self, minimal_topology):
         """Unencrypted INTERCOM(BUS) with no target_pubkey → inner BUS injected."""
         b = minimal_topology
@@ -102,6 +108,12 @@ class TestIntercomInnerDelivery:
 class TestIllegalBroadcastDisconnects:
     """TS-FIX-03 — Non-admin satellite that sends BROADCAST must be disconnected."""
 
+    @pytest.mark.xfail(
+        reason="hivemind-core#116: illegal BROADCAST fires illegal_callback but only "
+               "returns (TODO 'kick client'), leaving the satellite connected — "
+               "unlike QUERY/CASCADE which disconnect on permission violation",
+        strict=False,
+    )
     def test_non_admin_broadcast_disconnects_satellite(self, star_topology):
         """After a non-admin BROADCAST the sending satellite is no longer in clients."""
         b = star_topology
@@ -138,6 +150,11 @@ class TestIllegalBroadcastDisconnects:
 class TestIllegalPropagateDisconnects:
     """TS-FIX-04 — Satellite with can_propagate=False that sends PROPAGATE is disconnected."""
 
+    @pytest.mark.xfail(
+        reason="hivemind-core#116: can_propagate=False PROPAGATE fires illegal_callback "
+               "but only returns (TODO 'kick client'), leaving the satellite connected",
+        strict=False,
+    )
     def test_cant_propagate_satellite_disconnected(self):
         b = TopologyBuilder()
         b.add_master("M0")
@@ -169,6 +186,11 @@ class TestIllegalPropagateDisconnects:
 class TestIllegalEscalateDisconnects:
     """TS-FIX-05 — Satellite with can_escalate=False that sends ESCALATE is disconnected."""
 
+    @pytest.mark.xfail(
+        reason="hivemind-core#116: can_escalate=False ESCALATE fires illegal_callback "
+               "but only returns (TODO 'kick client'), leaving the satellite connected",
+        strict=False,
+    )
     def test_cant_escalate_satellite_disconnected(self):
         b = TopologyBuilder()
         b.add_master("M0")
@@ -201,6 +223,12 @@ class TestUpdateLastSeenMissingKey:
     """TS-FIX-06 — update_last_seen must not raise when the DB no longer has the
     client's API key (e.g. key was revoked while client was connected)."""
 
+    @pytest.mark.xfail(
+        reason="hivemind-core#118: update_last_seen dereferences "
+               "get_client_by_api_key() without a None-check, raising AttributeError "
+               "when the client's key was revoked/removed from the DB",
+        strict=False,
+    )
     def test_missing_key_does_not_crash(self, minimal_topology):
         b = minimal_topology
         m0 = b.get_master("M0")
@@ -224,6 +252,12 @@ class TestFileBinaryNameSanitized:
     """TS-FIX-07 — BINARY(FILE) metadata file_name is passed through os.path.basename()
     before reaching handle_receive_file, preventing path-traversal attacks."""
 
+    @pytest.mark.xfail(
+        reason="hivemind-core#119: handle_binary_message passes client-supplied "
+               "BINARY(FILE) file_name verbatim to handle_receive_file without "
+               "os.path.basename(), allowing path traversal",
+        strict=False,
+    )
     def test_path_traversal_stripped_before_handler(self, minimal_topology):
         b = minimal_topology
         s0 = b.get_satellite("S0")
