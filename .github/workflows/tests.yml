@@ -173,6 +173,15 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # The JS driver (test_helpers/js_e2e_driver.mjs) requires the HiveMind-js
+    # client; check it out and point HIVEMIND_JS_PATH at its hivemind.js.
+    - name: Checkout HiveMind-js
+      uses: actions/checkout@v4
+      with:
+        repository: JarbasHiveMind/HiveMind-js
+        ref: dev
+        path: hivemind-js-src
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -184,8 +193,10 @@ jobs:
         node-version: "20"
 
     - name: Install Node.js dependencies
+      # local install (not -g) so the driver's `require('ws')` resolves by
+      # walking up from test_helpers/ to the repo-root node_modules.
       run: |
-        npm install -g ws
+        npm install ws
 
     - name: Install uv
       uses: astral-sh/setup-uv@v2
@@ -200,5 +211,7 @@ jobs:
           "hivescope @ git+https://github.com/JarbasHiveMind/hivescope.git@fix/loopback-whitelist-only-connection"
 
     - name: Run JS E2E tests
+      env:
+        HIVEMIND_JS_PATH: ${{ github.workspace }}/hivemind-js-src/static/js/hivemind.js
       run: |
         .venv/bin/python -m pytest tests/test_js_e2e.py -v --tb=short
