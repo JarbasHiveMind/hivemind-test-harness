@@ -46,7 +46,7 @@ jobs:
     # exclude them here.
     - name: Run tests
       run: |
-        uv run pytest tests/ -v --tb=short -m "not slow" \
+        .venv/bin/python -m pytest tests/ -v --tb=short -m "not slow" \
           --ignore-glob='tests/test_e2e_*.py' \
           --ignore-glob='tests/test_embedded_*.py' \
           --ignore=tests/test_micropython_e2e.py \
@@ -107,7 +107,7 @@ jobs:
         # ovoscope 0.19.0a1 ships a pytest11 plugin incompatible with pytest 9
         # (OpenVoiceOS/ovoscope#87) — disable it. MiniCroft boot + serial skill
         # handlers are slow, so widen the per-test timeout.
-        uv run pytest \
+        .venv/bin/python -m pytest \
           tests/test_helloworld_hivemind.py \
           tests/test_ovoscope_integration.py \
           tests/test_e2e_session.py \
@@ -162,7 +162,7 @@ jobs:
       env:
         HIVEMIND_MICROPYTHON_CLIENT: ${{ github.workspace }}/hivemind-micropython-client
       run: |
-        uv run pytest tests/test_micropython_e2e.py tests/test_embedded_clients.py \
+        .venv/bin/python -m pytest tests/test_micropython_e2e.py tests/test_embedded_clients.py \
           tests/test_embedded_comprehensive.py tests/test_embedded_interop.py \
           -v --tb=short
 
@@ -201,4 +201,4 @@ jobs:
 
     - name: Run JS E2E tests
       run: |
-        uv run pytest tests/test_js_e2e.py -v --tb=short
+        .venv/bin/python -m pytest tests/test_js_e2e.py -v --tb=short
