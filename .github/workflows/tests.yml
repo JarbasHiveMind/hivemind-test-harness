@@ -52,6 +52,66 @@ jobs:
       run: |
         uv run pytest tests/ --cov=hivemind_test_harness --cov-report=term-missing
 
+  ovos-e2e:
+    # Live OVOS skill-execution layer: routes real utterances through HiveMind
+    # into a MiniCroft (ovoscope) and asserts OVOS skill behaviour. Needs the
+    # ovos extra (ovos-core[plugins] + intent-pipeline plugins + test skills)
+    # and the native FANN lib that ovos-padatious links against.
+    runs-on: ubuntu-latest
+    needs: harness-tests
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+
+    - name: Install native FANN lib (ovos-padatious / fann2 dependency)
+      # ovos-padatious binds the native doublefann shared lib via fann2; without
+      # it the padatious pipeline plugin fails to load and padatious-pipeline
+      # tests get "Unknown pipeline matcher".
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libfann2 libfann-dev
+
+    - name: Install dependencies
+      run: |
+        uv venv
+        uv pip install -e .[ovos]
+        uv pip install pytest-asyncio pytest-timeout
+
+    - name: Run OVOS skill-execution E2E tests
+      env:
+        # libfann2 installs libdoublefann.so.2 under the multiarch lib dir;
+        # ensure the dynamic loader finds it when fann2 imports _libfann.
+        LD_LIBRARY_PATH: /usr/lib/x86_64-linux-gnu
+      run: |
+        # The ovos-m2v intent pipeline caches sklearn-pickled models across
+        # sessions; a stale cache poisons matching (SG-7). Clear it first.
+        rm -rf ~/.local/share/mycroft/intent_cache
+        # ovoscope 0.19.0a1 ships a pytest11 plugin incompatible with pytest 9
+        # (OpenVoiceOS/ovoscope#87) — disable it. MiniCroft boot + serial skill
+        # handlers are slow, so widen the per-test timeout.
+        uv run pytest \
+          tests/test_helloworld_hivemind.py \
+          tests/test_ovoscope_integration.py \
+          tests/test_e2e_session.py \
+          tests/test_e2e_ocp.py \
+          tests/test_e2e_relay_skills.py \
+          tests/test_e2e_skills.py \
+          tests/test_e2e_converse.py \
+          tests/test_e2e_get_response.py \
+          tests/test_e2e_stop.py \
+          tests/test_solver_harness.py \
+          -p no:ovoscope --timeout=300 -v --tb=short
+
   micropython-e2e:
     runs-on: ubuntu-latest
     needs: harness-tests

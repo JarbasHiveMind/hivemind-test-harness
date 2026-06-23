@@ -336,16 +336,27 @@ def assert_types_in_order(messages: list, *expected_types: str) -> None:
         pos = found + 1
 
 
-def wait_for_satellite_message(satellite, msg_type: str, timeout: float = 10.0):
-    """Block until msg_type arrives on satellite.internal_bus. Returns the message or None."""
-    import threading
-    result = []
-    event = threading.Event()
+def wait_for_satellite_message(satellite, msg_type: str, timeout: float = 30.0):
+    """Block until msg_type has been received by the satellite. Returns a
+    Message (reconstructed from the satellite's recorder) or None on timeout.
 
-    def _on_msg(msg):
-        result.append(msg)
-        event.set()
-
-    satellite.internal_bus.once(msg_type, _on_msg)
-    event.wait(timeout=timeout)
-    return result[0] if result else None
+    Uses the satellite's MessageRecorder rather than a freshly-registered
+    ``internal_bus.once`` listener. The recorder buffers every inbound message,
+    so a message that already arrived *before* this call (e.g. the skill's
+    speak landed during the preceding ``cap.wait(...)``) is still matched —
+    a late ``once`` listener would silently miss it and the test would flake.
+    """
+    from ovos_bus_client.message import Message
+    rec = satellite.recorder.wait_for(msg_type, direction="in", timeout=timeout)
+    if rec is None:
+        return None
+    payload = rec.payload
+    if isinstance(payload, Message):
+        return payload
+    if isinstance(payload, dict):
+        return Message(
+            payload.get("type", msg_type),
+            payload.get("data", {}),
+            payload.get("context", {}),
+        )
+    return payload

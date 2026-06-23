@@ -55,7 +55,8 @@ def converse_topology():
 
     b = TopologyBuilder()
     b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
+    b.add_satellite("S0", upstream=b.get_master("M0"),
+                    allowed_types=["recognizer_loop:utterance"])
     b.start_all()
     yield b, agent
     b.stop_all()
@@ -74,7 +75,7 @@ class TestParrotRepeat:
 
         cap = agent.new_capture()
         s0.send(make_utterance("say hello world", DEFAULT_PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         speak = next((m for m in messages if m.msg_type == "speak"), None)
         assert speak is not None, (
@@ -92,7 +93,7 @@ class TestParrotRepeat:
 
         cap = agent.new_capture()
         s0.send(make_utterance("say testing one two three", DEFAULT_PIPELINE, s0.shim.session_id))
-        cap.wait(timeout=15)
+        cap.wait(timeout=60)
 
         msg = wait_for_satellite_message(s0, "speak", timeout=10)
         assert msg is not None, "speak not forwarded to satellite"
@@ -110,7 +111,7 @@ class TestParrotMode:
 
         cap = agent.new_capture()
         s0.send(make_utterance("start parrot mode", DEFAULT_PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         speak = next((m for m in messages if m.msg_type == "speak"), None)
         assert speak is not None, (
@@ -127,13 +128,13 @@ class TestParrotMode:
         # Start parrot mode
         cap1 = agent.new_capture()
         s0.send(make_utterance("start parrot mode", DEFAULT_PIPELINE, s0.shim.session_id))
-        cap1.wait(timeout=15)
+        cap1.wait(timeout=60)
         agent.clear()
 
         # Now send arbitrary text — should be echoed via converse
         cap2 = agent.new_capture()
         s0.send(make_utterance("the quick brown fox", DEFAULT_PIPELINE, s0.shim.session_id))
-        messages = cap2.wait(timeout=15)
+        messages = cap2.wait(timeout=60)
 
         speak = next((m for m in messages if m.msg_type == "speak"), None)
         assert speak is not None, (
@@ -150,12 +151,12 @@ class TestParrotMode:
         # Start then stop
         cap1 = agent.new_capture()
         s0.send(make_utterance("start parrot mode", DEFAULT_PIPELINE, s0.shim.session_id))
-        cap1.wait(timeout=15)
+        cap1.wait(timeout=60)
         agent.clear()
 
         cap2 = agent.new_capture()
         s0.send(make_utterance("stop parrot", DEFAULT_PIPELINE, s0.shim.session_id))
-        messages = cap2.wait(timeout=15)
+        messages = cap2.wait(timeout=60)
 
         speak = next((m for m in messages if m.msg_type == "speak"), None)
         assert speak is not None, (

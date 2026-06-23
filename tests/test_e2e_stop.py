@@ -64,7 +64,8 @@ def stop_topology():
 
     b = TopologyBuilder()
     b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
+    b.add_satellite("S0", upstream=b.get_master("M0"),
+                    allowed_types=["recognizer_loop:utterance"])
     b.start_all()
     yield b, agent
     b.stop_all()

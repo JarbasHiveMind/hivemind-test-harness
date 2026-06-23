@@ -121,7 +121,8 @@ def get_response_topology():
 
     b = TopologyBuilder()
     b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
+    b.add_satellite("S0", upstream=b.get_master("M0"),
+                    allowed_types=["recognizer_loop:utterance"])
     b.start_all()
     yield b, agent
     b.stop_all()
@@ -148,7 +149,7 @@ class TestMakeAChoice:
         )
         s0.send(make_utterance("make a choice", GET_RESPONSE_PIPELINE,
                                 s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         # Skill should ask "What is the first choice?"
         speak = next((m for m in messages if m.msg_type == "speak"), None)
@@ -172,7 +173,7 @@ class TestMakeAChoice:
         )
         s0.send(make_utterance("make a choice", GET_RESPONSE_PIPELINE,
                                 s0.shim.session_id))
-        cap.wait(timeout=15)
+        cap.wait(timeout=60)
 
         msg = wait_for_satellite_message(s0, "speak", timeout=10)
         assert msg is not None, "get_response question not forwarded to satellite"
@@ -230,7 +231,7 @@ class TestMakeAChoice:
         )
         s0.send(make_utterance("make a choice", GET_RESPONSE_PIPELINE,
                                 s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         assert any(m.msg_type == "skill.converse.get_response.enable" for m in messages), (
             f"get_response.enable not emitted.\n"
@@ -256,7 +257,7 @@ class TestFlipACoin:
         cap = agent.new_capture()
         s0.send(make_utterance("flip a coin", GET_RESPONSE_PIPELINE,
                                 s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         speak = next((m for m in messages if m.msg_type == "speak"), None)
         assert speak is not None, (
@@ -273,7 +274,7 @@ class TestFlipACoin:
         cap = agent.new_capture()
         s0.send(make_utterance("pick a number between 1 and 10",
                                 GET_RESPONSE_PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         speak = next((m for m in messages if m.msg_type == "speak"), None)
         assert speak is not None, (
@@ -303,7 +304,7 @@ class TestVolumeGetResponse:
         # "change volume" matches adapt intent but has no number -> get_response
         s0.send(make_utterance("change the volume", GET_RESPONSE_PIPELINE,
                                 s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         # Should get a speak asking for the volume level
         speak = next((m for m in messages if m.msg_type == "speak"), None)

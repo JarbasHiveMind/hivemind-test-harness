@@ -152,7 +152,7 @@ class TestAdaptIntentViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         assert any(m.msg_type == "recognizer_loop:utterance" for m in messages), (
             "recognizer_loop:utterance not found on skill bus.\n"
@@ -166,7 +166,7 @@ class TestAdaptIntentViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         intent_msg = next(
             (m for m in messages if m.msg_type == f"{SKILL_ID}:HelloWorldIntent"),
@@ -185,7 +185,7 @@ class TestAdaptIntentViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         speak = next((m for m in messages if m.msg_type == "speak"), None)
         assert speak is not None, (
@@ -203,7 +203,7 @@ class TestAdaptIntentViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         _assert_types_in_order(
             messages,
@@ -222,7 +222,7 @@ class TestAdaptIntentViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         activate = next(
             (m for m in messages if m.msg_type == f"{SKILL_ID}.activate"),
@@ -253,7 +253,7 @@ class TestAdaptUtterancePadatiousPipelineViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         assert any(m.msg_type == "complete_intent_failure" for m in messages), (
             f"complete_intent_failure not emitted.\nCaptured: {_types(messages)}"
@@ -266,7 +266,7 @@ class TestAdaptUtterancePadatiousPipelineViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         assert not any(m.msg_type == "speak" for m in messages), (
             f"'speak' was unexpectedly emitted.\nCaptured: {_types(messages)}"
@@ -279,7 +279,7 @@ class TestAdaptUtterancePadatiousPipelineViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         _assert_types_in_order(
             messages,
@@ -306,7 +306,7 @@ class TestPadatiousIntentViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("good morning", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         intent_msg = next(
             (m for m in messages if m.msg_type == f"{SKILL_ID}:Greetings.intent"),
@@ -324,7 +324,7 @@ class TestPadatiousIntentViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("good morning", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         speak = next((m for m in messages if m.msg_type == "speak"), None)
         assert speak is not None, (
@@ -343,7 +343,7 @@ class TestPadatiousIntentViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("good morning", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         _assert_types_in_order(
             messages,
@@ -376,7 +376,7 @@ class TestPadatiousUtteranceAdaptPipelineViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("good morning", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         assert any(m.msg_type == "complete_intent_failure" for m in messages), (
             f"complete_intent_failure not emitted.\nCaptured: {_types(messages)}"
@@ -389,7 +389,7 @@ class TestPadatiousUtteranceAdaptPipelineViaHiveMind:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("good morning", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         assert not any(m.msg_type == "speak" for m in messages), (
             f"'speak' was unexpectedly emitted.\nCaptured: {_types(messages)}"
@@ -430,10 +430,10 @@ class TestSpeakPropagatesBackToSatellite:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
-        cap.wait(timeout=15)
+        cap.wait(timeout=60)
 
         # Block until satellite receives the forwarded speak (or timeout)
-        sat_event.wait(timeout=10)
+        sat_event.wait(timeout=30)
         assert sat_speak, (
             "speak message was not forwarded back to the satellite by HiveMind"
         )
@@ -457,14 +457,14 @@ class TestSpeakPropagatesBackToSatellite:
 
         cap = agent.new_capture()
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         # Skill bus speak
         speak_on_bus = next((m for m in messages if m.msg_type == "speak"), None)
         assert speak_on_bus is not None, "speak not emitted on skill bus"
 
         # Satellite speak (HiveMind roundtrip) — wait up to 10s
-        sat_event.wait(timeout=10)
+        sat_event.wait(timeout=30)
         if sat_speak:
             assert sat_speak[0].data.get("utterance") == speak_on_bus.data.get(
                 "utterance"
