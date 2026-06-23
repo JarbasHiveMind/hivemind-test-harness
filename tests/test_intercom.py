@@ -18,11 +18,12 @@ Note: make_identity() generates a fresh RSA keypair (2048-bit) for every node.
       The public key is stored at identity.public_key (ASCII-armored string).
 """
 import json
+import pytest
 import pybase64
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
-from hivemind_test_harness.topology import TopologyBuilder
-from hivemind_test_harness.node import MasterNode, SatelliteNode
+from hivescope.topology import TopologyBuilder
+from hivescope.node import MasterNode, SatelliteNode
 
 
 def _intercom_msg(target_pubkey=None):
@@ -63,6 +64,12 @@ class TestIntercomNoEncryption:
 
         m0.recorder.assert_received(HiveMessageType.INTERCOM, direction="in")
 
+    @pytest.mark.xfail(
+        reason="hivemind-websocket-client#130: handle_intercom asserts "
+               "message.payload.msg_type and crashes (AttributeError) on a "
+               "dict/opaque INTERCOM payload instead of ignoring it.",
+        strict=False,
+    )
     def test_intercom_in_broadcast_does_not_crash(self, admin_star_topology):
         """BROADCAST wrapping INTERCOM from admin satellite → master tries INTERCOM routing,
         fails silently (no matching key), then proceeds with normal broadcast fan-out."""

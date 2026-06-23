@@ -10,7 +10,7 @@ import pytest
 from ovos_bus_client.message import Message
 
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
 
 
 def _cascade_msg(utterance: str = "what is the weather?",
@@ -33,19 +33,48 @@ def _cascade_msg(utterance: str = "what is the weather?",
 
 
 def _setup_agent_responder(master_node, query_id: str, answer: str = "sunny"):
-    """Register a bus handler that responds to CASCADE queries."""
+    """Register a bus handler that answers the agent's natural_language_query.
+
+    hivescope's ``TestAgentProtocol.natural_language_query`` emits a
+    ``recognizer_loop:utterance`` carrying a *fresh, internal* ``query_id`` in
+    its context and then streams back any ``speak`` (terminated by
+    ``ovos.utterance.handled``) carrying that same ``query_id``. So the
+    responder must echo the qid from the *incoming* bus message — not the outer
+    CASCADE/QUERY ``query_id`` (which the satellite chose and which never
+    reaches the agent bus). hivemind-core re-wraps the streamed answer into a
+    response correlated to the outer ``query_id`` before routing it back to the
+    originator, so correlation at the network layer is preserved either way.
+    """
     bus = master_node.agent_protocol.bus
 
     def _responder(msg: Message):
-        if msg.context.get("query_id") == query_id:
-            resp = Message("speak",
-                           {"utterance": answer},
-                           {"query_id": query_id,
-                            "destination": msg.context.get("peer"),
-                            "source": "skills"})
-            bus.emit(resp)
+        qid = msg.context.get("query_id")
+        bus.emit(Message("speak",
+                         {"utterance": answer},
+                         {"query_id": qid, "source": "skills"}))
+        # signal end-of-query so natural_language_query stops streaming promptly
+        bus.emit(Message("ovos.utterance.handled", {}, {"query_id": qid}))
 
     bus.on("recognizer_loop:utterance", _responder)
+
+
+def _grant_query_access(host_master, satellite,
+                        types=("recognizer_loop:utterance",)):
+    """Whitelist the message types the satellite may inject.
+
+    hivemind-core is deny-by-default / whitelist-only (MessageTypeACLPolicy):
+    a client with an empty ``allowed_types`` cannot inject anything, so its
+    QUERY/CASCADE utterances are policy-denied at admission. Grant the type on
+    both the live connection (what the policy reads) and the DB row.
+    """
+    conn = host_master.hm_protocol.clients.get(satellite.peer)
+    if conn is not None:
+        conn.allowed_types = list(types)
+    key = satellite.identity.access_key
+    db_client = host_master.db.get_client_by_api_key(key)
+    if db_client is not None:
+        db_client.allowed_types = list(types)
+        host_master.db.update_item(db_client)
 
 
 class TestCascadeAllRespond:
@@ -58,6 +87,7 @@ class TestCascadeAllRespond:
 
         query_id = "c-all-01"
         _setup_agent_responder(m0, query_id)
+        _grant_query_access(m0, s0)
 
         responses = []
         s0.shim.emitter.on(HiveMessageType.CASCADE, responses.append)
@@ -104,6 +134,7 @@ class TestCascadeStarTopology:
 
         query_id = "c-star-02"
         _setup_agent_responder(m0, query_id)
+        _grant_query_access(m0, s0)
 
         responses = []
         s0.shim.emitter.on(HiveMessageType.CASCADE, responses.append)
@@ -127,8 +158,7 @@ class TestCascadeRelayForwarding:
 
         query_id = "c-relay-01"
 
-        r1_cascade_calls = []
-        r1_master.recorder.messages = []
+        r1_master.recorder.clear()
 
         msg = _cascade_msg(query_id=query_id, originator_peer=s0.peer)
         s0.send(msg)
@@ -170,6 +200,7 @@ class TestCascadeSelectCallback:
 
         query_id = "c-select-01"
         _setup_agent_responder(m0, query_id, answer="sunny")
+        _grant_query_access(m0, s0)
 
         # Set up a select callback that picks the first response
         selected = []
@@ -198,6 +229,7 @@ class TestCascadeSelectCallback:
 
         query_id = "c-select-02"
         _setup_agent_responder(m0, query_id, answer="waiting")
+        _grant_query_access(m0, s0)
 
         invoked = []
 
@@ -223,6 +255,7 @@ class TestCascadeResponseMetadata:
 
         query_id = "c-meta-01"
         _setup_agent_responder(m0, query_id)
+        _grant_query_access(m0, s0)
 
         responses = []
         s0.shim.emitter.on(HiveMessageType.CASCADE, responses.append)

@@ -7,7 +7,14 @@ name = "hivemind-test-harness"
 version = "0.1.0"
 description = "In-process end-to-end test framework for the HiveMind protocol"
 requires-python = ">=3.9"
-dependencies = []  # all come from the workspace editable installs
+dependencies = [
+    # The in-process simulator (TopologyBuilder, nodes, recorder, the protocol
+    # plugins, fixtures, assertions and scenarios) lives in hivescope. Pulling
+    # it in also drags hivemind-core, hivemind-bus-client and the rest of the
+    # stack transitively; the remaining bits come from the workspace editable
+    # installs.
+    "hivescope>=0.5.0a2",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -16,6 +23,26 @@ dev = [
     "pytest-timeout",
     "pytest-cov",
     "websockets>=11",
+    # cross-repo packages whose code the harness imports directly in tests
+    # (e.g. test_audio_transformers imports hivemind_audio_binary_protocol).
+    "hivemind-audio-binary-protocol",
+]
+# Live OVOS skill execution through HiveMind (MiniCroft-backed agent). Mirrors
+# hivescope's own ``ovos`` extra, plus the intent-pipeline plugins MiniCroft
+# needs to actually match intents (ovos-adapt-parser / ovos-padatious /
+# common-query / ocp — without them MiniCroft logs "Unknown pipeline matcher").
+ovos = [
+    "hivescope[ovos]>=0.5.0a2",
+    "ovos-core[plugins]>=2.0.0a2",
+    "ovos-padatious>=1.4.2,<2.0.0",
+    "ovos-skill-hello-world",
+    "ovos-skill-date-time",
+    # test_solver_harness exercises HiveMindSolver (module ovos_hivemind_solver)
+    "ovos-solver-hivemind-plugin",
+    # SG-7: the ovos-m2v intent pipeline ships sklearn-pickled models trained
+    # on sklearn 1.6.x; sklearn>=1.7 unpickles them with InconsistentVersion
+    # warnings and degraded matching. Pin to the training series.
+    "scikit-learn<1.7",
 ]
 plot = [
     "matplotlib>=3.5",

@@ -12,7 +12,7 @@ Node roles
   Dual-role — a node that is simultaneously a satellite (connected upstream)
               AND a master (accepting downstream satellites), sharing one
               agent bus/AI brain.  The harness calls this a **relay** and
-              models it as a :class:`~hivemind_test_harness.topology.RelayNode`.
+              models it as a :class:`~hivescope.topology.RelayNode`.
 
 Topology catalogue
 ──────────────────
@@ -37,7 +37,25 @@ Topology catalogue
 """
 import random
 import pytest
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
+
+# The in-process simulator (nodes, fixtures, assertions, scenarios) lives in
+# hivescope. Register its pytest fixtures (topology, master_node, satellite_node,
+# admin_satellite, restricted_satellite) so they are available repo-wide.
+pytest_plugins = ["hivescope.pytest_fixtures"]
+
+# Standard satellite→master voice/audio message types a normal satellite is
+# granted (hivemind-core is deny-by-default / whitelist-only). Tests that
+# exercise ACL restriction build their own topologies with explicit
+# allowed_types instead of these fixtures; non-standard types (e.g.
+# speak:synth) are still denied by default and granted per-test where needed.
+_VOICE_TYPES = [
+    "recognizer_loop:utterance",
+    "recognizer_loop:record_begin",
+    "recognizer_loop:record_end",
+    "recognizer_loop:b64_transcribe",
+    "speak:b64_audio",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +67,7 @@ def minimal_topology():
     """T1: 1 master, 1 satellite."""
     b = TopologyBuilder()
     b.add_master("M0")
-    b.add_satellite("S0", upstream=b.get_master("M0"))
+    b.add_satellite("S0", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
     b.start_all()
     yield b
     b.stop_all()
@@ -66,7 +84,7 @@ def star_topology(request):
     b = TopologyBuilder()
     b.add_master("M0")
     for i in range(n):
-        b.add_satellite(f"S{i}", upstream=b.get_master("M0"))
+        b.add_satellite(f"S{i}", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
     b.start_all()
     yield b
     b.stop_all()
@@ -77,9 +95,9 @@ def admin_star_topology():
     """T2 variant: 1 master, 3 satellites where S0 is admin."""
     b = TopologyBuilder()
     b.add_master("M0")
-    b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True)
-    b.add_satellite("S1", upstream=b.get_master("M0"))
-    b.add_satellite("S2", upstream=b.get_master("M0"))
+    b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True, allowed_types=_VOICE_TYPES)
+    b.add_satellite("S1", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
+    b.add_satellite("S2", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
     b.start_all()
     yield b
     b.stop_all()
@@ -95,7 +113,7 @@ def chain_topology():
     b = TopologyBuilder()
     b.add_master("M0")
     _, relay_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=relay_master)
+    b.add_satellite("S0", upstream=relay_master, allowed_types=_VOICE_TYPES)
     b.start_all()
     yield b
     b.stop_all()
@@ -108,7 +126,7 @@ def deep_chain_topology():
     b.add_master("M0")
     _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
     _, r2_master = b.add_relay("R2", upstream=r1_master)
-    b.add_satellite("S0", upstream=r2_master)
+    b.add_satellite("S0", upstream=r2_master, allowed_types=_VOICE_TYPES)
     b.start_all()
     yield b
     b.stop_all()
@@ -149,7 +167,7 @@ def huge_hive_topology():
     for relay_idx, n_sats in enumerate(_HUGE_HIVE_COUNTS):
         _, rm = b.add_relay(f"RM{relay_idx}", upstream=b.get_master("M0"))
         for _ in range(n_sats):
-            b.add_satellite(f"HS{sat_idx}", upstream=rm)
+            b.add_satellite(f"HS{sat_idx}", upstream=rm, allowed_types=_VOICE_TYPES)
             sat_idx += 1
 
     b.start_all()
@@ -194,21 +212,21 @@ def chaotic_hive_topology():
 
     # R1: relay off M0, serves S0, S1, S2
     _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=r1_master)
-    b.add_satellite("S1", upstream=r1_master)
-    b.add_satellite("S2", upstream=r1_master)
+    b.add_satellite("S0", upstream=r1_master, allowed_types=_VOICE_TYPES)
+    b.add_satellite("S1", upstream=r1_master, allowed_types=_VOICE_TYPES)
+    b.add_satellite("S2", upstream=r1_master, allowed_types=_VOICE_TYPES)
 
     # R2: relay off M0, serves S3 and a nested relay R3
     _, r2_master = b.add_relay("R2", upstream=b.get_master("M0"))
-    b.add_satellite("S3", upstream=r2_master)
+    b.add_satellite("S3", upstream=r2_master, allowed_types=_VOICE_TYPES)
 
     # R3: nested relay off R2, serves S4, S5
     _, r3_master = b.add_relay("R3", upstream=r2_master)
-    b.add_satellite("S4", upstream=r3_master)
-    b.add_satellite("S5", upstream=r3_master)
+    b.add_satellite("S4", upstream=r3_master, allowed_types=_VOICE_TYPES)
+    b.add_satellite("S5", upstream=r3_master, allowed_types=_VOICE_TYPES)
 
     # S6: direct satellite of root M0
-    b.add_satellite("S6", upstream=b.get_master("M0"))
+    b.add_satellite("S6", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
 
     b.start_all()
     yield b
@@ -249,11 +267,11 @@ def asymmetric_hive_topology():
     current_master = b.get_master("M0")
     for i in range(_DEPTH):
         _, current_master = b.add_relay(f"RA{i}", upstream=current_master)
-    b.add_satellite("S_deep", upstream=current_master)
+    b.add_satellite("S_deep", upstream=current_master, allowed_types=_VOICE_TYPES)
 
     # Short arms: 3 direct satellites of M0
     for i in range(3):
-        b.add_satellite(f"S_short{i}", upstream=b.get_master("M0"))
+        b.add_satellite(f"S_short{i}", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
 
     b.start_all()
     yield b
@@ -318,16 +336,27 @@ def assert_types_in_order(messages: list, *expected_types: str) -> None:
         pos = found + 1
 
 
-def wait_for_satellite_message(satellite, msg_type: str, timeout: float = 10.0):
-    """Block until msg_type arrives on satellite.internal_bus. Returns the message or None."""
-    import threading
-    result = []
-    event = threading.Event()
+def wait_for_satellite_message(satellite, msg_type: str, timeout: float = 30.0):
+    """Block until msg_type has been received by the satellite. Returns a
+    Message (reconstructed from the satellite's recorder) or None on timeout.
 
-    def _on_msg(msg):
-        result.append(msg)
-        event.set()
-
-    satellite.internal_bus.once(msg_type, _on_msg)
-    event.wait(timeout=timeout)
-    return result[0] if result else None
+    Uses the satellite's MessageRecorder rather than a freshly-registered
+    ``internal_bus.once`` listener. The recorder buffers every inbound message,
+    so a message that already arrived *before* this call (e.g. the skill's
+    speak landed during the preceding ``cap.wait(...)``) is still matched —
+    a late ``once`` listener would silently miss it and the test would flake.
+    """
+    from ovos_bus_client.message import Message
+    rec = satellite.recorder.wait_for(msg_type, direction="in", timeout=timeout)
+    if rec is None:
+        return None
+    payload = rec.payload
+    if isinstance(payload, Message):
+        return payload
+    if isinstance(payload, dict):
+        return Message(
+            payload.get("type", msg_type),
+            payload.get("data", {}),
+            payload.get("context", {}),
+        )
+    return payload

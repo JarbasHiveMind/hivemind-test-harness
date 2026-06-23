@@ -26,7 +26,29 @@ from typing import Optional, List
 import pytest
 
 # Import MicroPython client (from parent workspace)
-_MP_CLIENT_ROOT = Path(__file__).resolve().parents[2] / "hivemind-micropython-client"
+def _find_mp_client_root() -> Path:
+    """Locate the hivemind-micropython-client checkout.
+
+    Honours ``HIVEMIND_MICROPYTHON_CLIENT`` if set, otherwise searches the
+    common workspace layouts (sibling of the harness, or under a ``clients/``
+    cluster dir alongside ``core/``).
+    """
+    env = os.environ.get("HIVEMIND_MICROPYTHON_CLIENT")
+    if env:
+        return Path(env).resolve()
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[2] / "hivemind-micropython-client",
+        here.parents[3] / "clients" / "hivemind-micropython-client",
+        here.parents[2] / "clients" / "hivemind-micropython-client",
+    ]
+    for cand in candidates:
+        if (cand / "hivemind" / "client.py").exists():
+            return cand
+    return candidates[0]
+
+
+_MP_CLIENT_ROOT = _find_mp_client_root()
 if str(_MP_CLIENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_MP_CLIENT_ROOT))
 
@@ -38,7 +60,7 @@ from hivemind.client import (
 from hivemind.binary import BIN_RAW_AUDIO, MSG_BINARY
 
 # Import test harness
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
 from ovos_bus_client.message import Message
 
 

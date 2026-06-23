@@ -134,18 +134,17 @@ class TestPropagateAllTopologies:
         b = star_topology
         s1_received = []
         s2_received = []
+        # core forwards the unpacked inner payload to peers, so siblings receive
+        # the propagated THIRDPRTY message directly (not the PROPAGATE wrapper).
         b.get_satellite("S1").shim.emitter.on(
-            HiveMessageType.PROPAGATE, s1_received.append
+            HiveMessageType.THIRDPRTY, s1_received.append
         )
         b.get_satellite("S2").shim.emitter.on(
-            HiveMessageType.PROPAGATE, s2_received.append
+            HiveMessageType.THIRDPRTY, s2_received.append
         )
         b.get_satellite("S0").send(_propagate_msg())
-        # Keep only THIRDPRTY wraps (filter out any PING/PONG artefacts)
-        assert any(m.payload.msg_type == HiveMessageType.THIRDPRTY
-                   for m in s1_received)
-        assert any(m.payload.msg_type == HiveMessageType.THIRDPRTY
-                   for m in s2_received)
+        assert len(s1_received) >= 1
+        assert len(s2_received) >= 1
 
     def test_propagate_chain_crosses_relay(self, chain_topology):
         b = chain_topology
@@ -242,7 +241,7 @@ class TestBroadcastAllTopologies:
     """BROADCAST from an admin satellite reaches all direct siblings."""
 
     def _admin_topology(self, n_extra: int = 2):
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True)
@@ -264,13 +263,14 @@ class TestBroadcastAllTopologies:
     def test_broadcast_siblings_receive(self):
         b = self._admin_topology(n_extra=2)
         try:
+            # peers receive the unpacked inner THIRDPRTY content, not the wrapper
             s1_recv = []
             s2_recv = []
             b.get_satellite("S1").shim.emitter.on(
-                HiveMessageType.BROADCAST, s1_recv.append
+                HiveMessageType.THIRDPRTY, s1_recv.append
             )
             b.get_satellite("S2").shim.emitter.on(
-                HiveMessageType.BROADCAST, s2_recv.append
+                HiveMessageType.THIRDPRTY, s2_recv.append
             )
             b.get_satellite("S0").send(_broadcast_msg())
             assert len(s1_recv) == 1
@@ -302,7 +302,7 @@ class TestSharedBusAllTopologies:
     """SHARED_BUS enables passive eavesdropping on a satellite's internal bus."""
 
     def _shared_topology(self):
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True)

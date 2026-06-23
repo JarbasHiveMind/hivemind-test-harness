@@ -29,8 +29,8 @@ import time
 import pytest
 from ovos_bus_client.message import Message
 
-from hivemind_test_harness.plugins.ovoscope_agent import OvoscopeAgentProtocol
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
+from hivescope.topology import TopologyBuilder
 from tests.conftest import (
     SKILL_COUNT, SKILL_HELLO,
     skill_missing, make_utterance, wait_for_satellite_message,
@@ -64,7 +64,8 @@ def stop_topology():
 
     b = TopologyBuilder()
     b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
+    b.add_satellite("S0", upstream=b.get_master("M0"),
+                    allowed_types=["recognizer_loop:utterance"])
     b.start_all()
     yield b, agent
     b.stop_all()

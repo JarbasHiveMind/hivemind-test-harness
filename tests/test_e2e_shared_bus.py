@@ -19,8 +19,8 @@ import pytest
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 
-from hivemind_test_harness.plugins.ovoscope_agent import OvoscopeAgentProtocol
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
+from hivescope.topology import TopologyBuilder
 from tests.conftest import (
     SKILL_HELLO,
     skill_missing, make_utterance, wait_for_satellite_message,

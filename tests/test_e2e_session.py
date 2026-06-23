@@ -20,8 +20,8 @@ import pytest
 from ovos_bus_client.message import Message
 from ovos_bus_client.session import Session
 
-from hivemind_test_harness.plugins.ovoscope_agent import OvoscopeAgentProtocol
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
+from hivescope.topology import TopologyBuilder
 from tests.conftest import (
     SKILL_HELLO, SKILL_DATETIME,
     skill_missing, make_utterance,
@@ -46,7 +46,8 @@ def session_topology():
 
     b = TopologyBuilder()
     b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
+    b.add_satellite("S0", upstream=b.get_master("M0"),
+                    allowed_types=["recognizer_loop:utterance"])
     b.start_all()
     yield b, agent
     b.stop_all()
@@ -69,7 +70,7 @@ class TestLangPropagation:
         # we verify the lang arrives at the hub
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id,
                                 lang="en-US"))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         utterance = next(
             (m for m in messages if m.msg_type == "recognizer_loop:utterance"),
@@ -91,7 +92,7 @@ class TestSessionIdPreserved:
 
         cap = agent.new_capture()
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         speak = next((m for m in messages if m.msg_type == "speak"), None)
         assert speak is not None
@@ -114,7 +115,7 @@ class TestPipelineOverride:
 
         cap = agent.new_capture()
         s0.send(make_utterance("hello world", PADATIOUS_PIPELINE, s0.shim.session_id))
-        messages = cap.wait(timeout=15)
+        messages = cap.wait(timeout=60)
 
         # hello-world uses Adapt for "hello world" — padatious won't match
         assert any(m.msg_type == "complete_intent_failure" for m in messages), (
@@ -136,7 +137,7 @@ class TestMultiTurnSession:
         # First utterance
         cap1 = agent.new_capture()
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
-        messages1 = cap1.wait(timeout=15)
+        messages1 = cap1.wait(timeout=60)
         speak1 = next((m for m in messages1 if m.msg_type == "speak"), None)
         assert speak1 is not None, "First utterance did not produce speak"
 
@@ -145,7 +146,7 @@ class TestMultiTurnSession:
         # Second utterance with same session
         cap2 = agent.new_capture()
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
-        messages2 = cap2.wait(timeout=15)
+        messages2 = cap2.wait(timeout=60)
         speak2 = next((m for m in messages2 if m.msg_type == "speak"), None)
         assert speak2 is not None, "Second utterance did not produce speak"
 

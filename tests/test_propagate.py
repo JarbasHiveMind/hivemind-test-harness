@@ -22,15 +22,17 @@ class TestPropagateFanOut:
         s1 = b.get_satellite("S1")
         s2 = b.get_satellite("S2")
 
+        # core forwards the unpacked inner payload to peers, so siblings receive
+        # the propagated THIRDPRTY content, not the PROPAGATE wrapper.
         s1_received = []
         s2_received = []
-        s1.shim.emitter.on(HiveMessageType.PROPAGATE, s1_received.append)
-        s2.shim.emitter.on(HiveMessageType.PROPAGATE, s2_received.append)
+        s1.shim.emitter.on(HiveMessageType.THIRDPRTY, s1_received.append)
+        s2.shim.emitter.on(HiveMessageType.THIRDPRTY, s2_received.append)
 
         s0.send(_propagate_msg())
 
-        assert len(s1_received) == 1, "S1 should receive PROPAGATE"
-        assert len(s2_received) == 1, "S2 should receive PROPAGATE"
+        assert len(s1_received) == 1, "S1 should receive the propagated content"
+        assert len(s2_received) == 1, "S2 should receive the propagated content"
 
     def test_sender_does_not_receive_own_propagate(self, star_topology):
         b = star_topology
@@ -73,7 +75,7 @@ class TestPropagateCannotPropagate:
     """TS-PROP-02 — satellite with can_propagate=False is rejected."""
 
     def test_illegal_propagate_fires_callback(self):
-        from hivemind_test_harness.topology import TopologyBuilder
+        from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"), can_propagate=False)

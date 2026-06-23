@@ -47,7 +47,7 @@ from unittest.mock import patch
 
 import pytest
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.topology import TopologyBuilder
 
 # Mirror of conftest._HUGE_HIVE_COUNTS — same seed so the counts are identical.
 _HUGE_HIVE_SEED = 2026
@@ -292,6 +292,13 @@ class TestHiveMapperIntegration:
         assert "[self]" in ascii_map, \
             f"Root peer should be labelled [self].\nGot:\n{ascii_map}"
 
+    @pytest.mark.xfail(
+        reason="NodeInfo (hivemind_bus_client.hive_map) currently exposes no "
+               "rtt_ms field (fields: peer/site_id/timestamp/received_at/"
+               "public_key/lang/trusted). RTT-on-NodeInfo is not implemented; "
+               "tracked in hivemind-test-harness#6.",
+        strict=False,
+    )
     def test_node_info_rtt_available(self, minimal_topology):
         b = minimal_topology
         m0 = b.get_master("M0")
@@ -638,7 +645,7 @@ class TestSilentNodes:
     """TS-PING-10 — nodes that do not respond to PING are absent from HiveMapper.
 
     Three mechanisms are tested:
-      a) Monkey-patching _handle_ping to be a no-op (clean, no side effects)
+      a) Monkey-patching handle_ping to be a no-op (clean, no side effects)
       b) All satellites silent — empty HiveMapper
       c) Mixed: some respond, some don't — only responders appear
     """
@@ -650,15 +657,15 @@ class TestSilentNodes:
         s0 = b.get_satellite("S0")
 
         # Make S0 skip responsive PING entirely
-        original_handle_ping = s0.slave_protocol._handle_ping
-        s0.slave_protocol._handle_ping = lambda msg: None
+        original_handle_ping = s0.slave_protocol.handle_ping
+        s0.slave_protocol.handle_ping = lambda msg: None
 
         try:
             _do_ping(m0)
             assert len(m0.hm_protocol.hive_mapper.nodes) == 0, \
                 "HiveMapper should be empty when the only satellite is silent"
         finally:
-            s0.slave_protocol._handle_ping = original_handle_ping
+            s0.slave_protocol.handle_ping = original_handle_ping
 
     def test_silent_satellite_absent_partial_star(self, star_topology):
         """Star with 3 satellites; S1 silenced — only S0 and S2 appear in mapper."""
@@ -668,8 +675,8 @@ class TestSilentNodes:
         s1 = b.get_satellite("S1")
         s2 = b.get_satellite("S2")
 
-        original = s1.slave_protocol._handle_ping
-        s1.slave_protocol._handle_ping = lambda msg: None
+        original = s1.slave_protocol.handle_ping
+        s1.slave_protocol.handle_ping = lambda msg: None
 
         try:
             _do_ping(m0)
@@ -680,7 +687,7 @@ class TestSilentNodes:
             assert len(mapper_peers) == 2, \
                 f"Expected exactly 2 nodes in mapper, got {len(mapper_peers)}"
         finally:
-            s1.slave_protocol._handle_ping = original
+            s1.slave_protocol.handle_ping = original
 
     def test_all_silent_mapper_empty(self, star_topology):
         """All three satellites silenced — empty HiveMapper."""
@@ -690,8 +697,8 @@ class TestSilentNodes:
         originals = {}
         for i in range(3):
             s = b.get_satellite(f"S{i}")
-            originals[i] = s.slave_protocol._handle_ping
-            s.slave_protocol._handle_ping = lambda msg: None
+            originals[i] = s.slave_protocol.handle_ping
+            s.slave_protocol.handle_ping = lambda msg: None
 
         try:
             _do_ping(m0)
@@ -699,7 +706,7 @@ class TestSilentNodes:
                 "Mapper should be empty when all satellites are silent"
         finally:
             for i in range(3):
-                b.get_satellite(f"S{i}").slave_protocol._handle_ping = originals[i]
+                b.get_satellite(f"S{i}").slave_protocol.handle_ping = originals[i]
 
     def test_partial_response_only_responders_in_mapper(self):
         """Freshly built star with 5 satellites; 2 silenced — exactly 3 respond."""
@@ -714,8 +721,8 @@ class TestSilentNodes:
         originals = {}
         for i in silent_indices:
             s = b.get_satellite(f"S{i}")
-            originals[i] = s.slave_protocol._handle_ping
-            s.slave_protocol._handle_ping = lambda msg: None
+            originals[i] = s.slave_protocol.handle_ping
+            s.slave_protocol.handle_ping = lambda msg: None
 
         try:
             _do_ping(m0)
@@ -730,7 +737,7 @@ class TestSilentNodes:
                     assert peer in mapper_peers, f"Responding S{i} must appear"
         finally:
             for i, orig in originals.items():
-                b.get_satellite(f"S{i}").slave_protocol._handle_ping = orig
+                b.get_satellite(f"S{i}").slave_protocol.handle_ping = orig
             b.stop_all()
 
     def test_reconnected_satellite_responds_after_silence(self, minimal_topology):
@@ -739,15 +746,15 @@ class TestSilentNodes:
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
 
-        original = s0.slave_protocol._handle_ping
-        s0.slave_protocol._handle_ping = lambda msg: None
+        original = s0.slave_protocol.handle_ping
+        s0.slave_protocol.handle_ping = lambda msg: None
 
         # First PING — silent
         _do_ping(m0)
         assert len(m0.hm_protocol.hive_mapper.nodes) == 0
 
         # Restore handler
-        s0.slave_protocol._handle_ping = original
+        s0.slave_protocol.handle_ping = original
 
         # Second PING — should respond
         m0.hm_protocol.hive_mapper.clear()

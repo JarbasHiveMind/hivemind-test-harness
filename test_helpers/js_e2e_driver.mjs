@@ -25,8 +25,13 @@ const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 globalThis.WebSocket = WebSocket;
 
-// Load the actual HiveMind JS client
-const hivemindPath = resolve(__dirname, '../../HiveMind-js/static/js/hivemind.js');
+// Load the actual HiveMind JS client.
+// Allow an explicit override (the repo may live in a different cluster dir
+// than the harness's sibling assumption), else fall back to the default
+// sibling path.
+const hivemindPath = process.env.HIVEMIND_JS_PATH
+    ? resolve(process.env.HIVEMIND_JS_PATH)
+    : resolve(__dirname, '../../HiveMind-js/static/js/hivemind.js');
 const { JarbasHiveMind } = require(hivemindPath);
 
 const args = process.argv.slice(2);

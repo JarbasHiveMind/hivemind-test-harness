@@ -36,8 +36,8 @@ import pytest
 from ovos_bus_client.message import Message
 from ovos_bus_client.session import Session
 
-from hivemind_test_harness.plugins.ovoscope_agent import OvoscopeAgentProtocol
-from hivemind_test_harness.topology import TopologyBuilder
+from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
+from hivescope.topology import TopologyBuilder
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +77,11 @@ def ovoscope_topology():
     agent = OvoscopeAgentProtocol(skill_ids=[])
     b = TopologyBuilder()
     b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
+    # hivemind-core is deny-by-default; the satellite must be granted
+    # recognizer_loop:utterance or its utterances are policy-denied at
+    # admission and never reach MiniCroft.
+    b.add_satellite("S0", upstream=b.get_master("M0"),
+                    allowed_types=["recognizer_loop:utterance"])
     b.start_all()
     yield b, agent
     b.stop_all()
