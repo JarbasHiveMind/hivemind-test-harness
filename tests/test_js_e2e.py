@@ -37,7 +37,8 @@ class TestJSE2E:
         # Setup: Create topology with loopback master
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("js-sat", password="js-password")
+        m.register_satellite("js-sat", password="js-password",
+                             allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
@@ -99,7 +100,8 @@ class TestJSE2E:
         # Setup
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("js-sat2", password="js-password2")
+        m.register_satellite("js-sat2", password="js-password2",
+                             allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
@@ -161,7 +163,8 @@ class TestJSE2E:
         """
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("js-sat3", password="js-password3")
+        m.register_satellite("js-sat3", password="js-password3",
+                             allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
