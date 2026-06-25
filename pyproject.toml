@@ -12,8 +12,9 @@ dependencies = [
     # plugins, fixtures, assertions and scenarios) lives in hivescope. Pulling
     # it in also drags hivemind-core, hivemind-bus-client and the rest of the
     # stack transitively; the remaining bits come from the workspace editable
-    # installs.
-    "hivescope>=0.5.0a2",
+    # installs. 0.5.2a1 carries the loopback-whitelist + ACL re-lookup + metadata
+    # repair and floors the bus-client 2.x stack, so no branch/override is needed.
+    "hivescope>=0.5.2a1",
 ]
 
 [project.optional-dependencies]
@@ -32,7 +33,7 @@ dev = [
 # needs to actually match intents (ovos-adapt-parser / ovos-padatious /
 # common-query / ocp — without them MiniCroft logs "Unknown pipeline matcher").
 ovos = [
-    "hivescope[ovos]>=0.5.0a2",
+    "hivescope[ovos]>=0.5.2a1",
     "ovos-core[plugins]>=2.0.0a2",
     "ovos-padatious>=1.4.2,<2.0.0",
     "ovos-skill-hello-world",
