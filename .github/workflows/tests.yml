@@ -30,14 +30,10 @@ jobs:
       run: |
         uv venv
         # --pre: the HiveMind 2.x stack (hivemind-core 4.6.x / hivemind-bus-client
-        # 0.9.x on ovos-bus-client 2.x) is prerelease-only on PyPI.
+        # 0.9.x on ovos-bus-client 2.x) is prerelease-only on PyPI. hivescope
+        # >=0.5.2a1 (pinned in pyproject) carries the loopback + ACL re-lookup
+        # fixes and floors the 2.x stack, so it resolves straight from PyPI.
         uv pip install --prerelease=allow -e .[dev]
-        # The loopback whitelist + InMemoryClientDatabase.get_client_by_id fixes
-        # are not on a published hivescope release yet; install from the branch
-        # carrying them so the real-socket e2e passes. Drop once hivescope ships
-        # a release with these.
-        uv pip install --prerelease=allow \
-          "hivescope @ git+https://github.com/JarbasHiveMind/hivescope.git@fix/loopback-whitelist-only-connection"
         uv pip install pytest-asyncio
 
     # In-process protocol/topology layer. The OVOS skill-execution, JS,
@@ -89,10 +85,6 @@ jobs:
       run: |
         uv venv
         uv pip install --prerelease=allow -e .[ovos]
-        # hivescope fixes (get_client_by_id/refresh — the second-utterance ACL
-        # bug — and the loopback fix) aren't on a published release yet.
-        uv pip install --prerelease=allow \
-          "hivescope[ovos] @ git+https://github.com/JarbasHiveMind/hivescope.git@fix/loopback-whitelist-only-connection"
         uv pip install pytest-asyncio pytest-timeout
 
     - name: Run OVOS skill-execution E2E tests
@@ -154,8 +146,6 @@ jobs:
       run: |
         uv venv
         uv pip install --prerelease=allow -e .[dev]
-        uv pip install --prerelease=allow \
-          "hivescope @ git+https://github.com/JarbasHiveMind/hivescope.git@fix/loopback-whitelist-only-connection"
         uv pip install pytest-asyncio
 
     - name: Run MicroPython + embedded E2E tests
@@ -207,8 +197,6 @@ jobs:
       run: |
         uv venv
         uv pip install --prerelease=allow -e .[dev]
-        uv pip install --prerelease=allow \
-          "hivescope @ git+https://github.com/JarbasHiveMind/hivescope.git@fix/loopback-whitelist-only-connection"
 
     - name: Run JS E2E tests
       env:
