@@ -298,6 +298,42 @@ SKILL_DICTATION = "ovos-skill-dictation.openvoiceos"
 SKILL_TUNEIN = "ovos-skill-tunein.openvoiceos"
 
 
+# MiniCroft READY budget. ovoscope's get_minicroft() defaults to max_wait=60s,
+# but a MiniCroft boots the *entire* default plugin set (common_query, stop, OCP
+# x2, persona, IntentService) serially before the requested test skills even
+# start loading — and several test skills do slow first-run work the first time
+# they boot on a clean runner (e.g. ovos-skill-date-time registers homescreen
+# example utterances + writes first-run settings, ~45s alone). On a loaded CI
+# runner the full boot legitimately exceeds 60s, so the default deadline trips
+# during fixture setup ("MiniCroft did not reach READY in 60s") even though the
+# stack is healthy. OvoscopeAgentProtocol does not forward max_wait to
+# get_minicroft, so we pre-build MiniCroft here with a roomier budget and hand
+# it in via ``minicroft=`` (the supported bring-your-own-MiniCroft path).
+MINICROFT_READY_TIMEOUT = 180
+
+
+def make_ovoscope_agent(skill_ids=None, *, extra_skills=None,
+                        max_wait: float = MINICROFT_READY_TIMEOUT):
+    """Build an :class:`OvoscopeAgentProtocol` with a generous READY budget.
+
+    Pre-starts the MiniCroft via ``ovoscope.get_minicroft`` with ``max_wait`` so
+    a slow-but-healthy boot (full default plugin set + cold-cache skill first
+    runs on a loaded CI runner) is not mistaken for a startup failure. Falls
+    back to letting OvoscopeAgentProtocol start MiniCroft itself if ovoscope's
+    helper is unavailable.
+    """
+    from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
+    skill_ids = list(skill_ids or [])
+    extra_skills = extra_skills or {}
+    try:
+        from ovoscope import get_minicroft
+    except Exception:
+        # ovoscope layout changed — defer to the protocol's own boot (60s).
+        return OvoscopeAgentProtocol(skill_ids=skill_ids, extra_skills=extra_skills)
+    minicroft = get_minicroft(skill_ids, extra_skills=extra_skills, max_wait=max_wait)
+    return OvoscopeAgentProtocol(minicroft=minicroft)
+
+
 def skill_missing(*skill_ids: str) -> bool:
     """Return True if ANY of the given skills are not installed."""
     try:

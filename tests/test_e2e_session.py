@@ -20,11 +20,10 @@ import pytest
 from ovos_bus_client.message import Message
 from ovos_bus_client.session import Session
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
     SKILL_HELLO, SKILL_DATETIME,
-    skill_missing, make_utterance,
+    skill_missing, make_utterance, make_ovoscope_agent,
 )
 
 ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
@@ -34,7 +33,10 @@ PADATIOUS_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 @pytest.fixture(scope="module")
 def session_topology():
     """M0(MiniCroft with hello-world + date-time) + S0."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_HELLO, SKILL_DATETIME])
+    # date-time does ~45s of first-run work on a clean runner; with the full
+    # default plugin set booting first, the 60s default READY budget is too
+    # tight. make_ovoscope_agent pre-boots MiniCroft with a roomier deadline.
+    agent = make_ovoscope_agent(skill_ids=[SKILL_HELLO, SKILL_DATETIME])
 
     _deadline = time.monotonic() + 120
     while time.monotonic() < _deadline:
