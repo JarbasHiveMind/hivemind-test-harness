@@ -77,7 +77,7 @@ class TestMicroPythonE2E:
         """MPY-E2E-01: Client performs handshake and reaches STATE_READY."""
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("mpy-key", password="mpy-password")
+        m.register_satellite("mpy-key", password="ember-thistle-cobalt-gust-24")
         b.start_all()
 
         try:
@@ -86,7 +86,7 @@ class TestMicroPythonE2E:
                 port=_extract_port(m.network_protocol.url),
                 username="mpy-sat",
                 access_key="mpy-key",
-                password="mpy-password",
+                password="ember-thistle-cobalt-gust-24",
                 reconnect_ms=0,
             )
             assert client.state == STATE_DISCONNECTED
@@ -102,7 +102,7 @@ class TestMicroPythonE2E:
         m = b.add_master("M0", use_loopback=True)
         # hivemind-core is whitelist-only: grant the type the client injects.
         m.register_satellite(
-            "mpy-key", password="mpy-password",
+            "mpy-key", password="ember-thistle-cobalt-gust-24",
             allowed_types=["recognizer_loop:utterance"],
         )
         b.start_all()
@@ -113,7 +113,7 @@ class TestMicroPythonE2E:
                 port=_extract_port(m.network_protocol.url),
                 username="mpy-sat",
                 access_key="mpy-key",
-                password="mpy-password",
+                password="ember-thistle-cobalt-gust-24",
                 reconnect_ms=0,
             )
             await _connect_and_wait(client)
@@ -138,7 +138,7 @@ class TestMicroPythonE2E:
         """MPY-E2E-03: Hub sends speak, client receives it."""
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("mpy-key", password="mpy-password")
+        m.register_satellite("mpy-key", password="ember-thistle-cobalt-gust-24")
         b.start_all()
 
         try:
@@ -152,7 +152,7 @@ class TestMicroPythonE2E:
                 port=_extract_port(m.network_protocol.url),
                 username="mpy-sat",
                 access_key="mpy-key",
-                password="mpy-password",
+                password="ember-thistle-cobalt-gust-24",
                 reconnect_ms=0,
             )
             client.on_bus_message = on_bus
@@ -181,11 +181,11 @@ class TestMicroPythonE2E:
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
         m.register_satellite(
-            "mpy-1", password="pwd1",
+            "mpy-1", password="vellum-otter-quartz-brim-40",
             allowed_types=["recognizer_loop:utterance"],
         )
         m.register_satellite(
-            "mpy-2", password="pwd2",
+            "mpy-2", password="pearl-anvil-cedar-lynx-hush-82",
             allowed_types=["recognizer_loop:utterance"],
         )
         b.start_all()
@@ -195,12 +195,12 @@ class TestMicroPythonE2E:
 
             c1 = HiveMindClient(
                 host="127.0.0.1", port=port,
-                username="c1", access_key="mpy-1", password="pwd1",
+                username="c1", access_key="mpy-1", password="vellum-otter-quartz-brim-40",
                 reconnect_ms=0,
             )
             c2 = HiveMindClient(
                 host="127.0.0.1", port=port,
-                username="c2", access_key="mpy-2", password="pwd2",
+                username="c2", access_key="mpy-2", password="pearl-anvil-cedar-lynx-hush-82",
                 reconnect_ms=0,
             )
 

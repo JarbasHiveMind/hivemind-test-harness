@@ -58,6 +58,7 @@ from hivemind.client import (
     STATE_READY,
 )
 from hivemind.binary import BIN_RAW_AUDIO, MSG_BINARY
+from hivemind.crypto import _norm_cipher
 
 # Import test harness
 from hivescope.topology import TopologyBuilder
@@ -180,7 +181,10 @@ class TestMicroPythonClientHandshake:
                 site_id="mpy-test",
                 preferred_cipher=cipher,
             )
-            assert client.preferred_cipher == cipher
+            # The client normalises the cipher label to its canonical wire
+            # value (byte-matching hivemind_bus_client.SupportedCiphers) so
+            # negotiation strings compare equal on the hub.
+            assert client.preferred_cipher == _norm_cipher(cipher)
 
 
 class TestMicroPythonClientMessages:
@@ -292,7 +296,7 @@ class TestMicroPythonCipherNegotiation:
             site_id="mpy-test",
             preferred_cipher="ChaCha20-Poly1305",
         )
-        assert client.preferred_cipher == "ChaCha20-Poly1305"
+        assert client.preferred_cipher == _norm_cipher("ChaCha20-Poly1305")
 
 
 class TestMicroPythonMultipleClients:
