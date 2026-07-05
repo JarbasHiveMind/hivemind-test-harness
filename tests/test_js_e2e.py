@@ -37,7 +37,7 @@ class TestJSE2E:
         # Setup: Create topology with loopback master
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("js-sat", password="js-password",
+        m.register_satellite("js-sat", password="glide-tavern-plum-yonder-58",
                              allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
@@ -58,7 +58,7 @@ class TestJSE2E:
                     url,
                     "js-sat",
                     "js-sat",  # name and key are same in test
-                    "js-password",
+                    "glide-tavern-plum-yonder-58",
                     "hello from javascript",
                 ],
                 capture_output=True,
@@ -76,7 +76,7 @@ class TestJSE2E:
                         url,
                         "js-sat",
                         "js-sat",
-                        "js-password",
+                        "glide-tavern-plum-yonder-58",
                         "hello from javascript",
                     ],
                     capture_output=True,
@@ -100,7 +100,7 @@ class TestJSE2E:
         # Setup
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("js-sat2", password="js-password2",
+        m.register_satellite("js-sat2", password="moss-quiver-lantern-drift-71",
                              allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
@@ -119,7 +119,7 @@ class TestJSE2E:
                     url,
                     "js-sat2",
                     "js-sat2",
-                    "js-password2",
+                    "moss-quiver-lantern-drift-71",
                     "test utterance from js",
                 ],
                 capture_output=True,
@@ -163,7 +163,7 @@ class TestJSE2E:
         """
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("js-sat3", password="js-password3",
+        m.register_satellite("js-sat3", password="copper-nimbus-fjord-waltz-93",
                              allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
@@ -181,7 +181,7 @@ class TestJSE2E:
                     url,
                     "js-sat3",
                     "js-sat3",
-                    "js-password3",
+                    "copper-nimbus-fjord-waltz-93",
                     "session test utterance",
                 ],
                 capture_output=True,

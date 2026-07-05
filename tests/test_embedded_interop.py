@@ -110,7 +110,7 @@ class TestHsubInterop:
 
     def test_micropython_hsub_validates_on_server(self) -> None:
         """Server PasswordHandShake.verify() accepts a MicroPython-generated hsub."""
-        password = "shared_secret_42"
+        password = "rune-basalt-medley-fox-video-06"
         _iv, hsub_hex = generate_hsub(password)
 
         server = PasswordHandShake(password)
@@ -120,7 +120,7 @@ class TestHsubInterop:
 
     def test_key_derivation_matches(self) -> None:
         """Both sides derive the same symmetric key after exchanging hsubs."""
-        password = "interop_password"
+        password = "tundra-vex-marlin-oath-glyph-17"
 
         # Server side
         server = PasswordHandShake(password)

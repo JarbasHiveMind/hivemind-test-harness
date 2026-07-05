@@ -40,7 +40,7 @@ if str(_MP_CLIENT_ROOT) not in sys.path:
 
 from hivemind.crypto import (
     generate_hsub, derive_key, encrypt_json,
-    decrypt_json, randbytes
+    decrypt_json, randbytes, _norm_cipher
 )
 from hivemind.binary import encode as binary_encode, decode as binary_decode, BIN_RAW_AUDIO
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
@@ -226,8 +226,8 @@ class TestMicroPythonIntegration:
             preferred_cipher="ChaCha20-Poly1305"
         )
 
-        assert client1.preferred_cipher == "AES-GCM"
-        assert client2.preferred_cipher == "ChaCha20-Poly1305"
+        assert client1.preferred_cipher == _norm_cipher("AES-GCM")
+        assert client2.preferred_cipher == _norm_cipher("ChaCha20-Poly1305")
 
     def test_envelope_building(self):
         """Test HiveMind message envelope format."""
