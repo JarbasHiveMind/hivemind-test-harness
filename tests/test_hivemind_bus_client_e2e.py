@@ -35,6 +35,14 @@ def _extract_host_port(url: str):
     return parts[0], int(parts[1])
 
 
+def _session_secret(client: HiveMessageBusClient):
+    """The client's active encrypted-session handle after handshake: the Noise
+    transport on protocol v3 (which intentionally leaves ``crypto_key`` None),
+    or the v2 session ``crypto_key`` otherwise. Distinct per connection either
+    way, so it doubles as an independent-session identity."""
+    return client.noise_transport or client.crypto_key
+
+
 def _make_client(url: str, key: str, password: str,
                  name: str = "test-client") -> HiveMessageBusClient:
     """Create a HiveMessageBusClient pointing at the loopback server."""
@@ -66,19 +74,21 @@ class TestHiveMessageBusClientHandshake:
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
         # whitelist-only ACL: grant the types this satellite injects.
-        m.register_satellite("test-key", password="test-password",
+        m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
                              allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
-            client = _make_client(m.network_protocol.url, "test-key", "test-password")
+            client = _make_client(m.network_protocol.url, "test-key", "Corr3ct-Horse!Batt3ry_v3xx")
             client.connect(site_id="loopback-site")
             client.wait_for_handshake(timeout=10)
             assert client.handshake_event.is_set(), \
                 "Handshake did not complete within 10s"
 
-            # Client should have a crypto key after handshake
-            assert client.crypto_key is not None, "crypto_key not set after handshake"
+            # Client should have an active encrypted session after handshake
+            # (Noise transport on v3, crypto_key on v2)
+            assert _session_secret(client) is not None, \
+                "no encrypted session established after handshake"
 
             # Wait for encrypted HELLO to be processed (registers client)
             time.sleep(1)
@@ -95,13 +105,13 @@ class TestHiveMessageBusClientHandshake:
         """Two clients connect and get independent sessions."""
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("key-1", password="pwd-1")
-        m.register_satellite("key-2", password="pwd-2")
+        m.register_satellite("key-1", password="Str0ng!Client-One_pass_9x")
+        m.register_satellite("key-2", password="Str0ng!Client-Two_pass_7q")
         b.start_all()
 
         try:
-            c1 = _make_client(m.network_protocol.url, "key-1", "pwd-1", "client-1")
-            c2 = _make_client(m.network_protocol.url, "key-2", "pwd-2", "client-2")
+            c1 = _make_client(m.network_protocol.url, "key-1", "Str0ng!Client-One_pass_9x", "client-1")
+            c2 = _make_client(m.network_protocol.url, "key-2", "Str0ng!Client-Two_pass_7q", "client-2")
 
             c1.connect(site_id="site-1")
             c2.connect(site_id="site-2")
@@ -113,9 +123,11 @@ class TestHiveMessageBusClientHandshake:
             peers = m.connected_peers()
             assert len(peers) == 2, f"Expected 2 peers, got {peers}"
 
-            # Independent crypto keys
-            assert c1.crypto_key != c2.crypto_key, \
-                "Clients must have different session crypto keys"
+            # Independent encrypted sessions (distinct Noise transports on v3,
+            # distinct crypto keys on v2)
+            assert _session_secret(c1) is not None and _session_secret(c2) is not None
+            assert _session_secret(c1) != _session_secret(c2), \
+                "Clients must have independent encrypted sessions"
         finally:
             for c in [c1, c2]:
                 try:
@@ -133,12 +145,12 @@ class TestHiveMessageBusClientBusMessages:
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
         # whitelist-only ACL: grant the types this satellite injects.
-        m.register_satellite("test-key", password="test-password",
+        m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
                              allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
-            client = _make_client(m.network_protocol.url, "test-key", "test-password")
+            client = _make_client(m.network_protocol.url, "test-key", "Corr3ct-Horse!Batt3ry_v3xx")
             client.connect(site_id="loopback-site")
             client.wait_for_handshake(timeout=10)
 
@@ -166,12 +178,12 @@ class TestHiveMessageBusClientBusMessages:
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
         # whitelist-only ACL: grant the types this satellite injects.
-        m.register_satellite("test-key", password="test-password",
+        m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
                              allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
-            client = _make_client(m.network_protocol.url, "test-key", "test-password")
+            client = _make_client(m.network_protocol.url, "test-key", "Corr3ct-Horse!Batt3ry_v3xx")
             client.connect(site_id="loopback-site")
             client.wait_for_handshake(timeout=10)
 
@@ -212,12 +224,12 @@ class TestHiveMessageBusClientBinaryData:
         b = TopologyBuilder()
         m = b.add_master("M0", use_loopback=True)
         # whitelist-only ACL: grant the types this satellite injects.
-        m.register_satellite("test-key", password="test-password",
+        m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
                              allowed_types=["recognizer_loop:utterance"])
         b.start_all()
 
         try:
-            client = _make_client(m.network_protocol.url, "test-key", "test-password")
+            client = _make_client(m.network_protocol.url, "test-key", "Corr3ct-Horse!Batt3ry_v3xx")
             client.connect(site_id="loopback-site")
             client.wait_for_handshake(timeout=10)
 

@@ -15,6 +15,12 @@ dependencies = [
     # installs. 0.5.2a1 carries the loopback-whitelist + ACL re-lookup + metadata
     # repair and floors the bus-client 2.x stack, so no branch/override is needed.
     "hivescope>=0.5.2a1",
+    # protocol v3 (Noise XXpsk2) floor for tests/test_protocol_v3_noise.py: the
+    # Noise handshake, the password-strength backstop and derive-psk provisioning
+    # all require this stack. Prerelease floors so pip resolves them without --pre.
+    "hivemind-core>=4.7.0a1",
+    "hivemind_bus_client>=0.10.1a1",
+    "poorman-handshake>=2.0.0a1",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +30,9 @@ dev = [
     "pytest-timeout",
     "pytest-cov",
     "websockets>=11",
+    # test_protocol_v3_noise reads the hub's advertised handshake params over a
+    # raw (sync) websocket to assert the min_protocol_version floor.
+    "websocket-client>=1.6",
     # cross-repo packages whose code the harness imports directly in tests
     # (e.g. test_audio_transformers imports hivemind_audio_binary_protocol).
     "hivemind-audio-binary-protocol",
@@ -35,6 +44,9 @@ dev = [
 ovos = [
     "hivescope[ovos]>=0.5.2a1",
     "ovos-core[plugins]>=2.0.0a2",
+    # the real agent backend the v3 Noise hub connects to (127.0.0.1:8181);
+    # test_protocol_v3_noise boots it as a subprocess to round-trip bus messages.
+    "ovos-messagebus>=0.0.13a1",
     "ovos-padatious>=1.4.2,<2.0.0",
     "ovos-skill-hello-world",
     "ovos-skill-date-time",
