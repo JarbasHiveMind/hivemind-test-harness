@@ -19,6 +19,7 @@ from hivemind_bus_client.client import HiveMessageBusClient
 from hivemind_bus_client.identity import NodeIdentity
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 from hivescope.topology import TopologyBuilder
+from hivescope.utils import make_identity
 
 # These exercise the production HiveMessageBusClient over a REAL localhost
 # WebSocket (LoopbackNetworkProtocol), unlike the rest of the suite which uses
@@ -47,7 +48,10 @@ def _make_client(url: str, key: str, password: str,
                  name: str = "test-client") -> HiveMessageBusClient:
     """Create a HiveMessageBusClient pointing at the loopback server."""
     host, port = _extract_host_port(url)
-    identity = NodeIdentity()
+    # in-memory identity: a bare NodeIdentity() is the REAL on-disk identity
+    # (~/.config/hivemind) and every test run would rewrite the user's access
+    # key, password and TOFU noise-key pins
+    identity = make_identity(name)
     identity.access_key = key
     identity.password = password
     identity.default_master = f"ws://{host}"
