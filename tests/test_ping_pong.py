@@ -40,7 +40,6 @@ for all discovery responses.
 """
 
 import json as _json
-import random as _random
 import time
 import uuid
 from unittest.mock import patch
@@ -49,10 +48,9 @@ import pytest
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 from hivescope.topology import TopologyBuilder
 
-# Mirror of conftest._HUGE_HIVE_COUNTS — same seed so the counts are identical.
-_HUGE_HIVE_SEED = 2026
-_HUGE_HIVE_RNG = _random.Random(_HUGE_HIVE_SEED)
-_HUGE_HIVE_COUNTS = [_HUGE_HIVE_RNG.randint(2, 6) for _ in range(10)]
+# The huge-hive shape is owned by conftest. Import it instead of re-deriving it
+# from a copied RNG seed — a copy silently drifts if the fixture ever changes.
+from .conftest import _HUGE_HIVE_COUNTS, huge_hive_expected_satellites
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +295,7 @@ class TestHiveMapperIntegration:
                "rtt_ms field (fields: peer/site_id/timestamp/received_at/"
                "public_key/lang/trusted). RTT-on-NodeInfo is not implemented; "
                "tracked in hivemind-test-harness#6.",
-        strict=False,
+        strict=True,
     )
     def test_node_info_rtt_available(self, minimal_topology):
         b = minimal_topology
@@ -509,7 +507,7 @@ class TestPingHugeHive:
         m0 = b.get_master("M0")
         _do_ping(m0)
         n = len(m0.hm_protocol.hive_mapper.nodes)
-        expected = 10 + sum(_HUGE_HIVE_COUNTS)  # 10 relay sats + all leaf sats
+        expected = huge_hive_expected_satellites()  # relay sats + all leaf sats
         assert n == expected, \
             (f"M0 should see {expected} total nodes (relay sats + leaf sats), got {n}. "
              f"nodes={list(m0.hm_protocol.hive_mapper.nodes.keys())}")
@@ -550,7 +548,7 @@ class TestPingHugeHive:
         events = []
         m0.agent_protocol.bus.on("hive.ping.received", events.append)
         _do_ping(m0)
-        expected = 10 + sum(_HUGE_HIVE_COUNTS)
+        expected = huge_hive_expected_satellites()
         assert len(events) == expected, \
             f"Expected {expected} hive.ping.received events on M0, got {len(events)}"
 
@@ -711,20 +709,20 @@ class TestSilentNodes:
     def test_partial_response_only_responders_in_mapper(self):
         """Freshly built star with 5 satellites; 2 silenced — exactly 3 respond."""
         b = TopologyBuilder()
-        b.add_master("M0")
-        for i in range(5):
-            b.add_satellite(f"S{i}", upstream=b.get_master("M0"))
-        b.start_all()
-
-        m0 = b.get_master("M0")
-        silent_indices = {1, 3}
         originals = {}
-        for i in silent_indices:
-            s = b.get_satellite(f"S{i}")
-            originals[i] = s.slave_protocol.handle_ping
-            s.slave_protocol.handle_ping = lambda msg: None
-
         try:
+            b.add_master("M0")
+            for i in range(5):
+                b.add_satellite(f"S{i}", upstream=b.get_master("M0"))
+            b.start_all()
+
+            m0 = b.get_master("M0")
+            silent_indices = {1, 3}
+            for i in silent_indices:
+                s = b.get_satellite(f"S{i}")
+                originals[i] = s.slave_protocol.handle_ping
+                s.slave_protocol.handle_ping = lambda msg: None
+
             _do_ping(m0)
             mapper_peers = set(m0.hm_protocol.hive_mapper.nodes.keys())
             assert len(mapper_peers) == 3, \

@@ -26,6 +26,11 @@ from tests.conftest import (
     skill_missing, make_utterance, wait_for_satellite_message,
 )
 
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
+
 CONVERSE_PIPELINE = [
     "ovos-converse-pipeline-plugin",
     "ovos-stop-pipeline-plugin",
@@ -106,13 +111,15 @@ def cancel_topology():
         pytest.skip("Test skills not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
-    b.add_satellite("S1", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"))
+        b.add_satellite("S1", upstream=b.get_master("M0"))
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 @pytest.fixture(scope="module")
@@ -129,12 +136,14 @@ def dictation_topology():
         pytest.skip("Dictation skill not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"))
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +204,16 @@ class TestCancelMidDialog:
         cap = agent.new_capture()
         s0.send(make_utterance("test timeout", CONVERSE_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=20)
-        # Just verify no crash — test passes if we get here
+        cap.assert_complete()
+        assert messages, "no bus activity after the cancelled dialog"
+        types = [m.msg_type for m in messages]
+        assert "recognizer_loop:utterance" in types, (
+            f"the follow-up utterance never reached the skill side. Captured: {types}"
+        )
+        assert any(t in ("speak", "ovos.utterance.handled") for t in types), (
+            "the pipeline must still answer after a cancelled get_response.\n"
+            f"Captured: {types}"
+        )
 
 
 # ---------------------------------------------------------------------------
