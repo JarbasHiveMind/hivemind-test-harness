@@ -32,8 +32,9 @@ class TestUnimplementedTypes:
     """TS-STUB-01..05 — unimplemented types must not crash the master."""
 
     def test_query_dispatches_to_handler(self):
+        """TS-STUB-01 — QUERY is now handled by handle_query_message (implemented)."""
+        b = None
         try:
-            """TS-STUB-01 — QUERY is now handled by handle_query_message (implemented)."""
             b = _make_topology()
             m0 = b.get_master("M0")
             s0 = b.get_satellite("S0")
@@ -49,11 +50,13 @@ class TestUnimplementedTypes:
 
             m0.recorder.assert_received(HiveMessageType.QUERY, direction="in")
         finally:
-            b.stop_all()
+            if b is not None:
+                b.stop_all()
 
     def test_cascade_dispatches_to_handler(self):
+        """TS-STUB-02 — CASCADE is now handled by handle_cascade_message (implemented)."""
+        b = None
         try:
-            """TS-STUB-02 — CASCADE is now handled by handle_cascade_message (implemented)."""
             b = _make_topology()
             m0 = b.get_master("M0")
             s0 = b.get_satellite("S0")
@@ -69,12 +72,14 @@ class TestUnimplementedTypes:
 
             m0.recorder.assert_received(HiveMessageType.CASCADE, direction="in")
         finally:
-            b.stop_all()
+            if b is not None:
+                b.stop_all()
 
     def test_ping_does_not_crash(self):
+        """TS-STUB-03 — PING falls to handle_unknown_message (empty stub).
+        TODO: implement PING handler (latency/alive check)."""
+        b = None
         try:
-            """TS-STUB-03 — PING falls to handle_unknown_message (empty stub).
-            TODO: implement PING handler (latency/alive check)."""
             b = _make_topology()
             m0 = b.get_master("M0")
             s0 = b.get_satellite("S0")
@@ -84,12 +89,14 @@ class TestUnimplementedTypes:
 
             m0.recorder.assert_received(HiveMessageType.PING, direction="in")
         finally:
-            b.stop_all()
+            if b is not None:
+                b.stop_all()
 
     def test_rendezvous_does_not_crash(self):
+        """TS-STUB-04 — RENDEZVOUS falls to handle_unknown_message (empty stub).
+        TODO: implement RENDEZVOUS handler (peer discovery / hole-punching)."""
+        b = None
         try:
-            """TS-STUB-04 — RENDEZVOUS falls to handle_unknown_message (empty stub).
-            TODO: implement RENDEZVOUS handler (peer discovery / hole-punching)."""
             b = _make_topology()
             m0 = b.get_master("M0")
             s0 = b.get_satellite("S0")
@@ -100,13 +107,15 @@ class TestUnimplementedTypes:
 
             m0.recorder.assert_received(HiveMessageType.RENDEZVOUS, direction="in")
         finally:
-            b.stop_all()
+            if b is not None:
+                b.stop_all()
 
     def test_thirdprty_toplevel_does_not_crash(self):
+        """TS-STUB-05 — THIRDPRTY as a top-level message falls to handle_unknown_message.
+        THIRDPRTY is typically used as an inner payload inside PROPAGATE/ESCALATE,
+        but is also a valid standalone message type."""
+        b = None
         try:
-            """TS-STUB-05 — THIRDPRTY as a top-level message falls to handle_unknown_message.
-            THIRDPRTY is typically used as an inner payload inside PROPAGATE/ESCALATE,
-            but is also a valid standalone message type."""
             b = _make_topology()
             m0 = b.get_master("M0")
             s0 = b.get_satellite("S0")
@@ -117,4 +126,5 @@ class TestUnimplementedTypes:
 
             m0.recorder.assert_received(HiveMessageType.THIRDPRTY, direction="in")
         finally:
-            b.stop_all()
+            if b is not None:
+                b.stop_all()
