@@ -30,6 +30,11 @@ from tests.conftest import (
     wait_for_satellite_message,
 )
 
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
+
 ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
@@ -55,56 +60,64 @@ def acl_agent():
     agent = OvoscopeAgentProtocol(
         skill_ids=[SKILL_HELLO, SKILL_DATETIME, SKILL_VOLUME, SKILL_FALLBACK]
     )
-    # Volume get responder
-    agent.bus.on("mycroft.volume.get",
-                 lambda m: agent.bus.emit(m.response({"percent": 0.5, "muted": False})))
+    try:
+        # Volume get responder
+        agent.bus.on("mycroft.volume.get",
+                     lambda m: agent.bus.emit(m.response({"percent": 0.5, "muted": False})))
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("Skills not registered within 120s")
-    yield agent
-    agent.shutdown()
+        _deadline = time.monotonic() + 120
+        while time.monotonic() < _deadline:
+            if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
+                break
+            time.sleep(0.5)
+        else:
+            pytest.skip("Skills not registered within 120s")
+        yield agent
+    finally:
+        agent.shutdown()
 
 
 @pytest.fixture(scope="module")
 def skill_blacklist_topology(acl_agent):
     """S0 has hello-world blacklisted; S1 has no restrictions."""
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=acl_agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"),
-                     skill_blacklist=[SKILL_HELLO])
-    b.add_satellite("S1", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b, acl_agent
-    b.stop_all()
+    try:
+        b.add_master("M0", agent_protocol=acl_agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         skill_blacklist=[SKILL_HELLO])
+        b.add_satellite("S1", upstream=b.get_master("M0"))
+        b.start_all()
+        yield b, acl_agent
+    finally:
+        b.stop_all()
 
 
 @pytest.fixture(scope="module")
 def intent_blacklist_topology(acl_agent):
     """S0 has HelloWorldIntent blacklisted."""
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=acl_agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"),
-                     intent_blacklist=[f"{SKILL_HELLO}:HelloWorldIntent"])
-    b.start_all()
-    yield b, acl_agent
-    b.stop_all()
+    try:
+        b.add_master("M0", agent_protocol=acl_agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         intent_blacklist=[f"{SKILL_HELLO}:HelloWorldIntent"])
+        b.start_all()
+        yield b, acl_agent
+    finally:
+        b.stop_all()
 
 
 @pytest.fixture(scope="module")
 def msg_blacklist_topology(acl_agent):
     """S0 has 'speak' blacklisted — skill runs but speak not delivered."""
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=acl_agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"),
-                     msg_blacklist=["speak"])
-    b.start_all()
-    yield b, acl_agent
-    b.stop_all()
+    try:
+        b.add_master("M0", agent_protocol=acl_agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         msg_blacklist=["speak"])
+        b.start_all()
+        yield b, acl_agent
+    finally:
+        b.stop_all()
 
 
 # ---------------------------------------------------------------------------

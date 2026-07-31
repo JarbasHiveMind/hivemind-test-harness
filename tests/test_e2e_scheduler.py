@@ -25,6 +25,11 @@ from tests.conftest import (
     make_utterance, wait_for_satellite_message,
 )
 
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
+
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
     "ovos-padatious-pipeline-plugin-high",
@@ -71,21 +76,25 @@ def scheduler_topology():
         extra_skills={SCHED_SKILL_ID: SchedulerTestSkill}
     )
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SCHED_SKILL_ID}:test.schedule.intent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("Scheduler test skill not registered within 120s")
-
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        _deadline = time.monotonic() + 120
+        while time.monotonic() < _deadline:
+            if len(agent.bus.ee.listeners(f"{SCHED_SKILL_ID}:test.schedule.intent")) > 0:
+                break
+            time.sleep(0.5)
+        else:
+            # MiniCroft is already booted — skipping without stopping it leaks
+            # the whole agent (bus, threads, skill services) into the session.
+            pytest.skip("Scheduler test skill not registered within 120s")
+
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"))
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 class TestScheduleEvent:

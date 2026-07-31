@@ -39,6 +39,11 @@ from ovos_bus_client.session import Session
 from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
+
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -10,14 +10,38 @@ Test IDs:
 - JS-E2E-02: Hub receives utterance from JS client
 """
 
+import shutil
 import subprocess
-import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from hivescope.topology import TopologyBuilder
 from hivemind_bus_client.message import HiveMessageType
+
+# Node.js is an external runtime, not something the driver can install. Decide
+# once, at collection time — a missing `node` used to surface as a driver
+# failure whose stderr the tests then string-matched.
+pytestmark = pytest.mark.skipif(
+    shutil.which("node") is None,
+    reason="Node.js (`node`) is not on PATH; the JS client driver cannot run",
+)
+
+# The hub records the utterance from its own thread after the node process
+# exits, so poll instead of reading the agent state straight away.
+_HUB_POLL_DEADLINE = 10.0
+
+
+def _wait_for_utterances(master, deadline: float = _HUB_POLL_DEADLINE):
+    """Poll the hub until it has injected at least one utterance."""
+    end = time.monotonic() + deadline
+    while True:
+        found = [msg for msg in master.agent_protocol.injected
+                 if msg.msg_type == "recognizer_loop:utterance"]
+        if found or time.monotonic() > end:
+            return found
+        time.sleep(0.1)
 
 
 class TestJSE2E:
@@ -36,12 +60,12 @@ class TestJSE2E:
         """
         # Setup: Create topology with loopback master
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("js-sat", password="glide-tavern-plum-yonder-58",
-                             allowed_types=["recognizer_loop:utterance"])
-        b.start_all()
-
         try:
+            m = b.add_master("M0", use_loopback=True)
+            m.register_satellite("js-sat", password="glide-tavern-plum-yonder-58",
+                                 allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
+
             # Get driver path
             driver_path = self._get_js_driver_path()
             if not driver_path.exists():
@@ -50,10 +74,10 @@ class TestJSE2E:
             # Extract host and port from URL (format: ws://127.0.0.1:PORT/)
             url = m.network_protocol.url
 
-            # Run Node.js driver
+            # Run the Node.js driver.
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "node",  # Try 'node' command
+                    "node",
                     str(driver_path),
                     url,
                     "js-sat",
@@ -65,24 +89,6 @@ class TestJSE2E:
                 text=True,
                 timeout=20,
             )
-
-            # Check exit code
-            if result.returncode != 0:
-                # Try with 'node' command directly if python wrapper fails
-                result = subprocess.run(
-                    [
-                        "node",
-                        str(driver_path),
-                        url,
-                        "js-sat",
-                        "js-sat",
-                        "glide-tavern-plum-yonder-58",
-                        "hello from javascript",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=20,
-                )
 
             print("STDOUT:", result.stdout)
             print("STDERR:", result.stderr)
@@ -99,12 +105,12 @@ class TestJSE2E:
         """
         # Setup
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("js-sat2", password="moss-quiver-lantern-drift-71",
-                             allowed_types=["recognizer_loop:utterance"])
-        b.start_all()
-
         try:
+            m = b.add_master("M0", use_loopback=True)
+            m.register_satellite("js-sat2", password="moss-quiver-lantern-drift-71",
+                                 allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
+
             driver_path = self._get_js_driver_path()
             if not driver_path.exists():
                 pytest.skip(f"JS driver not found at {driver_path}")
@@ -129,25 +135,15 @@ class TestJSE2E:
 
             # Check exit code (may fail if 'node' not available, that's ok)
             if result.returncode != 0:
-                if "node: command not found" in result.stderr or "No such file" in result.stderr:
-                    pytest.skip("Node.js not available in test environment")
-                else:
-                    # Node failed for other reason
-                    print("STDOUT:", result.stdout)
-                    print("STDERR:", result.stderr)
-                    pytest.fail(f"JS driver failed: {result.stderr}")
+                print("STDOUT:", result.stdout)
+                print("STDERR:", result.stderr)
+                pytest.fail(
+                    f"JS driver exited {result.returncode}: {result.stderr}")
 
-            # Hub should have recorded messages via the agent protocol
-            # The agent protocol's injected list captures bus messages
-            injected = m.agent_protocol.injected
-            utterance_messages = [
-                msg for msg in injected
-                if msg.msg_type == "recognizer_loop:utterance"
-            ]
-
+            utterance_messages = _wait_for_utterances(m)
             assert len(utterance_messages) > 0, (
-                "No utterance messages received on hub. "
-                f"Injected: {injected}, "
+                f"No utterance messages received on hub within {_HUB_POLL_DEADLINE}s. "
+                f"Injected: {m.agent_protocol.injected}, "
                 f"Records: {m.recorder.records}"
             )
 
@@ -162,12 +158,12 @@ class TestJSE2E:
         the correct session instead of falling back to 'default'.
         """
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("js-sat3", password="copper-nimbus-fjord-waltz-93",
-                             allowed_types=["recognizer_loop:utterance"])
-        b.start_all()
-
         try:
+            m = b.add_master("M0", use_loopback=True)
+            m.register_satellite("js-sat3", password="copper-nimbus-fjord-waltz-93",
+                                 allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
+
             driver_path = self._get_js_driver_path()
             if not driver_path.exists():
                 pytest.skip(f"JS driver not found at {driver_path}")
@@ -190,23 +186,16 @@ class TestJSE2E:
             )
 
             if result.returncode != 0:
-                if "node: command not found" in result.stderr or "No such file" in result.stderr:
-                    pytest.skip("Node.js not available in test environment")
-                else:
-                    print("STDOUT:", result.stdout)
-                    print("STDERR:", result.stderr)
-                    pytest.fail(f"JS driver failed: {result.stderr}")
+                print("STDOUT:", result.stdout)
+                print("STDERR:", result.stderr)
+                pytest.fail(
+                    f"JS driver exited {result.returncode}: {result.stderr}")
 
             # Check that at least one injected utterance has session context
-            injected = m.agent_protocol.injected
-            utterance_messages = [
-                msg for msg in injected
-                if msg.msg_type == "recognizer_loop:utterance"
-            ]
-
+            utterance_messages = _wait_for_utterances(m)
             assert len(utterance_messages) > 0, (
-                "No utterance messages received on hub. "
-                f"Injected: {injected}"
+                f"No utterance messages received on hub within {_HUB_POLL_DEADLINE}s. "
+                f"Injected: {m.agent_protocol.injected}"
             )
 
             # Verify session_id is present and not 'default'

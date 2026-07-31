@@ -247,7 +247,12 @@ class TestBroadcastAllTopologies:
         b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True)
         for i in range(1, n_extra + 1):
             b.add_satellite(f"S{i}", upstream=b.get_master("M0"))
-        b.start_all()
+        try:
+            b.start_all()
+        except BaseException:
+            # a partially-connected topology still holds live servers/threads
+            b.stop_all()
+            raise
         return b
 
     def test_broadcast_minimal_admin(self):
@@ -306,7 +311,12 @@ class TestSharedBusAllTopologies:
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True)
-        b.start_all()
+        try:
+            b.start_all()
+        except BaseException:
+            # a partially-connected topology still holds live servers/threads
+            b.stop_all()
+            raise
         return b
 
     def test_shared_bus_callback_fires(self):

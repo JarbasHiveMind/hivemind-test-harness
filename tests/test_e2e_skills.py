@@ -26,6 +26,11 @@ from tests.conftest import (
     wait_for_satellite_message,
 )
 
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
+
 # Use full default pipeline for most tests
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
@@ -52,22 +57,29 @@ def skills_topology():
     # padatious .intent handlers (e.g. what.time.is.it.intent), not an adapt
     # HandleTimeIntent — wait for the real intent so we don't burn the full
     # 120s deadline before every run.
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        listeners = agent.bus.ee.listeners(
-            f"{SKILL_DATETIME}:what.time.is.it.intent")
-        if len(listeners) > 0:
-            break
-        time.sleep(0.5)
-
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"),
-                    allowed_types=["recognizer_loop:utterance"])
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        _deadline = time.monotonic() + 120
+        while time.monotonic() < _deadline:
+            listeners = agent.bus.ee.listeners(
+                f"{SKILL_DATETIME}:what.time.is.it.intent")
+            if len(listeners) > 0:
+                break
+            time.sleep(0.5)
+        else:
+            # Sibling e2e modules all skip here; this one silently carried on
+            # and every test then failed for the wrong reason. The finally
+            # block shuts the already-booted MiniCroft down.
+            pytest.skip("Date-time skill intents not registered within 120s")
+
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                        allowed_types=["recognizer_loop:utterance"])
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 # ---------------------------------------------------------------------------

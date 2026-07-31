@@ -114,15 +114,26 @@ class Hub:
 
     # -- cli --
     def cli(self, *args, check=True):
-        return subprocess.run([_CORE_BIN, *args], env=self.env,
-                              capture_output=True, text=True)
+        """Run a hivemind-core subcommand.
 
-    def add_client(self, name, key, password, allow_weak=False):
+        With ``check`` (the default) a nonzero exit raises, so a broken CLI
+        call fails where it happens instead of surfacing later as a confusing
+        connection error. Pass ``check=False`` where nonzero IS the expectation.
+        """
+        r = subprocess.run([_CORE_BIN, *args], env=self.env,
+                           capture_output=True, text=True)
+        if check and r.returncode != 0:
+            raise AssertionError(
+                f"hivemind-core {' '.join(args)} exited {r.returncode}\n"
+                f"stdout: {r.stdout}\nstderr: {r.stderr}")
+        return r
+
+    def add_client(self, name, key, password, allow_weak=False, check=True):
         args = ["add-client", "--name", name, "--access-key", key,
                 "--password", password]
         if allow_weak:
             args.append("--allow-weak-password")
-        r = self.cli(*args)
+        r = self.cli(*args, check=check)
         for line in r.stdout.splitlines():
             if "Encryption Key:" in line:
                 self.last_crypto_key = line.split("Encryption Key:")[-1].strip()
@@ -135,15 +146,22 @@ class Hub:
         # server.json is created lazily on first CLI call; ensure it exists
         if not self.server_json.exists():
             self.cli("print-config")
+        assert self.server_json.exists(), (
+            f"hivemind-core print-config did not create {self.server_json}")
         cfg = json.loads(self.server_json.read_text())
         cfg.update(kw)
         self.server_json.write_text(json.dumps(cfg, indent=2))
 
     # -- processes --
     def start_messagebus(self):
+        # The log handle is kept so stop() can close it; an unclosed handle
+        # leaks a file descriptor per hub.
+        self._mb_log_fh = open(self.root / "mb.log", "w")
         self.mb = subprocess.Popen(
             [_MB_BIN], env=self.env,
-            stdout=open(self.root / "mb.log", "w"), stderr=subprocess.STDOUT)
+            stdout=self._mb_log_fh, stderr=subprocess.STDOUT)
+        # The caller (the fixture) owns stopping this hub, so a failure to bind
+        # must NOT leave the process behind — see the fixture's try/finally.
         assert _wait_port(MB_PORT), "ovos-messagebus never bound 8181"
 
     def start_core(self, extra_env=None, logname="core.log"):
@@ -151,9 +169,10 @@ class Hub:
         if extra_env:
             env.update(extra_env)
         self._core_log = self.root / logname
+        self._core_log_fh = open(self._core_log, "w")
         self.core = subprocess.Popen(
             [_CORE_BIN, "listen"], env=env,
-            stdout=open(self._core_log, "w"), stderr=subprocess.STDOUT)
+            stdout=self._core_log_fh, stderr=subprocess.STDOUT)
 
     def core_log(self) -> str:
         try:
@@ -171,12 +190,20 @@ class Hub:
             except Exception:
                 try:
                     p.kill()
+                    # Reap it — without this the child stays a zombie and its
+                    # port can still be held when the next test starts.
+                    p.wait(timeout=5)
                 except Exception:
                     pass
+        self.core = self.mb = None
+        for attr in ("_core_log_fh", "_mb_log_fh"):
+            fh = self.__dict__.pop(attr, None)
+            if fh is not None:
+                fh.close()
 
 
 @pytest.fixture
-def hub(tmp_path):
+def hub(tmp_path, monkeypatch):
     if not (_free(WS_PORT) and _free(MB_PORT)):
         pytest.skip(f"ports {WS_PORT}/{MB_PORT} already in use on this host")
     # Isolate the CLIENT's identity + Noise pin store per test. hivemind-core
@@ -184,22 +211,26 @@ def hub(tmp_path):
     # a stale pin from a prior run against a differently-keyed local hub would
     # abort the handshake as a "possible MITM". A fresh XDG_CONFIG_HOME gives
     # the client an empty pin store so TOFU pins THIS hub's key cleanly.
+    #
+    # monkeypatch restores XDG_CONFIG_HOME even when setup below raises. The
+    # hand-rolled save/restore used to be skipped on any failure after the
+    # Popen, so the rest of the session ran against the temp config dir.
     client_cfg = tmp_path / "client_config"
     client_cfg.mkdir(parents=True, exist_ok=True)
-    _saved_xdg = os.environ.get("XDG_CONFIG_HOME")
-    os.environ["XDG_CONFIG_HOME"] = str(client_cfg)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(client_cfg))
+
     h = Hub(tmp_path)
     h.last_crypto_key = None
-    h.start_messagebus()
-    # provision the standard strong client used by most tests
-    h.add_client("sat1", STRONG_KEY, STRONG_PW)
-    h.allow_msg("recognizer_loop:utterance", 1)
-    yield h
-    h.stop()
-    if _saved_xdg is None:
-        os.environ.pop("XDG_CONFIG_HOME", None)
-    else:
-        os.environ["XDG_CONFIG_HOME"] = _saved_xdg
+    try:
+        # start_messagebus() asserts on the bind; the Popen has already
+        # happened by then, so the teardown must run even on that failure.
+        h.start_messagebus()
+        # provision the standard strong client used by most tests
+        h.add_client("sat1", STRONG_KEY, STRONG_PW)
+        h.allow_msg("recognizer_loop:utterance", 1)
+        yield h
+    finally:
+        h.stop()
 
 
 def _clear_noise_pins(client):
@@ -232,6 +263,7 @@ def test_v3_noise_handshake_and_encrypted_roundtrip(hub):
     time.sleep(1)
 
     from ovos_bus_client import MessageBusClient as OVOSBus
+    ob = None
     c = _connect(STRONG_KEY, STRONG_PW, retries=5)
     try:
         # v3 negotiated (a legacy v2 fallback would leave this None)
@@ -255,11 +287,17 @@ def test_v3_noise_handshake_and_encrypted_roundtrip(hub):
             time.sleep(0.2)
         assert got.get("r") == "echo:hello world", f"no encrypted round-trip: {got}"
     finally:
+        # Separate try blocks: a failing c.close() used to skip ob.close()
+        # entirely, and ob is undefined when the assert above it fired.
         try:
             c.close()
-            ob.close()
         except Exception:
             pass
+        if ob is not None:
+            try:
+                ob.close()
+            except Exception:
+                pass
 
     assert "Noise session established" in hub.core_log()
 
@@ -282,7 +320,7 @@ def test_wrong_password_fails_fast(hub):
 # 3. weak password refused at ingestion, accepted with the override flag
 # ---------------------------------------------------------------------------
 def test_weak_password_refused_at_ingestion(hub):
-    r = hub.add_client("weak_reject", WEAK_KEY, WEAK_PW)
+    r = hub.add_client("weak_reject", WEAK_KEY, WEAK_PW, check=False)
     assert r.returncode != 0, "weak password should be refused at add-client"
     assert "guessable" in (r.stdout + r.stderr).lower()
 

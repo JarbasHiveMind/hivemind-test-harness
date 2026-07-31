@@ -29,6 +29,11 @@ from tests.conftest import (
     wait_for_satellite_message,
 )
 
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
+
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
     "ovos-padatious-pipeline-plugin-high",
@@ -114,27 +119,31 @@ def volume_topology():
     # Install volume.get responder on hub bus (skill calls _query_volume)
     _install_volume_responder(agent.bus)
 
-    # Wait for volume skill intents to register
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        # change_volume is an adapt intent that should be registered
-        if len(agent.bus.ee.listeners(f"{SKILL_VOLUME}:change_volume")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("Volume skill intents not registered within 120s")
-
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
-    b.start_all()
+    try:
+        # Wait for volume skill intents to register
+        _deadline = time.monotonic() + 120
+        while time.monotonic() < _deadline:
+            # change_volume is an adapt intent that should be registered
+            if len(agent.bus.ee.listeners(f"{SKILL_VOLUME}:change_volume")) > 0:
+                break
+            time.sleep(0.5)
+        else:
+            # MiniCroft is already booted — the finally block below shuts it
+            # down, so the skip does not leak the agent.
+            pytest.skip("Volume skill intents not registered within 120s")
 
-    s0 = b.get_satellite("S0")
-    mock_phal = MockVolumePHAL(s0.internal_bus)
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"))
+        b.start_all()
 
-    yield b, agent, mock_phal
-    b.stop_all()
-    agent.shutdown()
+        s0 = b.get_satellite("S0")
+        mock_phal = MockVolumePHAL(s0.internal_bus)
+
+        yield b, agent, mock_phal
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 # ---------------------------------------------------------------------------

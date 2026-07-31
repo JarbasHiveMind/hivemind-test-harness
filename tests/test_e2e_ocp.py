@@ -24,6 +24,11 @@ from tests.conftest import (
     skill_missing, make_utterance, wait_for_satellite_message,
 )
 
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
+
 CONVERSE_PIPELINE = [
     "ovos-converse-pipeline-plugin",
     "ovos-adapt-pipeline-plugin-high",
@@ -115,13 +120,15 @@ def ocp_topology():
         pytest.skip("OCP test skill not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"),
-                    allowed_types=["recognizer_loop:utterance"])
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                        allowed_types=["recognizer_loop:utterance"])
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 # A programmatically-injected skill (extra_skills={...}) registers its intent

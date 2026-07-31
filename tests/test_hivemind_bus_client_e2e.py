@@ -76,13 +76,14 @@ class TestHiveMessageBusClientHandshake:
     def test_client_connects_and_handshakes(self):
         """Client reaches handshake completion against loopback hub."""
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        # whitelist-only ACL: grant the types this satellite injects.
-        m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
-                             allowed_types=["recognizer_loop:utterance"])
-        b.start_all()
-
+        client = None
         try:
+            m = b.add_master("M0", use_loopback=True)
+            # whitelist-only ACL: grant the types this satellite injects.
+            m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
+                                 allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
+
             client = _make_client(m.network_protocol.url, "test-key", "Corr3ct-Horse!Batt3ry_v3xx")
             client.connect(site_id="loopback-site")
             client.wait_for_handshake(timeout=10)
@@ -99,21 +100,23 @@ class TestHiveMessageBusClientHandshake:
             assert len(m.connected_peers()) == 1, \
                 f"Expected 1 peer, got {m.connected_peers()}"
         finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
             b.stop_all()
 
     def test_two_clients_connect_independently(self):
         """Two clients connect and get independent sessions."""
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("key-1", password="Str0ng!Client-One_pass_9x")
-        m.register_satellite("key-2", password="Str0ng!Client-Two_pass_7q")
-        b.start_all()
-
+        c1 = c2 = None
         try:
+            m = b.add_master("M0", use_loopback=True)
+            m.register_satellite("key-1", password="Str0ng!Client-One_pass_9x")
+            m.register_satellite("key-2", password="Str0ng!Client-Two_pass_7q")
+            b.start_all()
+
             c1 = _make_client(m.network_protocol.url, "key-1", "Str0ng!Client-One_pass_9x", "client-1")
             c2 = _make_client(m.network_protocol.url, "key-2", "Str0ng!Client-Two_pass_7q", "client-2")
 
@@ -133,7 +136,10 @@ class TestHiveMessageBusClientHandshake:
             assert _session_secret(c1) != _session_secret(c2), \
                 "Clients must have independent encrypted sessions"
         finally:
-            for c in [c1, c2]:
+            # c2 may never have been created if c1's constructor raised.
+            for c in (c1, c2):
+                if c is None:
+                    continue
                 try:
                     c.close()
                 except Exception:
@@ -147,13 +153,14 @@ class TestHiveMessageBusClientBusMessages:
     def test_send_utterance_arrives_at_hub(self):
         """Client sends recognizer_loop:utterance, hub receives it."""
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        # whitelist-only ACL: grant the types this satellite injects.
-        m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
-                             allowed_types=["recognizer_loop:utterance"])
-        b.start_all()
-
+        client = None
         try:
+            m = b.add_master("M0", use_loopback=True)
+            # whitelist-only ACL: grant the types this satellite injects.
+            m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
+                                 allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
+
             client = _make_client(m.network_protocol.url, "test-key", "Corr3ct-Horse!Batt3ry_v3xx")
             client.connect(site_id="loopback-site")
             client.wait_for_handshake(timeout=10)
@@ -171,22 +178,24 @@ class TestHiveMessageBusClientBusMessages:
                 "recognizer_loop:utterance", count=1
             )
         finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
             b.stop_all()
 
     def test_hub_sends_speak_to_client(self):
         """Hub sends speak BUS message, client receives it on internal bus."""
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        # whitelist-only ACL: grant the types this satellite injects.
-        m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
-                             allowed_types=["recognizer_loop:utterance"])
-        b.start_all()
-
+        client = None
         try:
+            m = b.add_master("M0", use_loopback=True)
+            # whitelist-only ACL: grant the types this satellite injects.
+            m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
+                                 allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
+
             client = _make_client(m.network_protocol.url, "test-key", "Corr3ct-Horse!Batt3ry_v3xx")
             client.connect(site_id="loopback-site")
             client.wait_for_handshake(timeout=10)
@@ -211,10 +220,11 @@ class TestHiveMessageBusClientBusMessages:
             assert len(received) > 0, f"Client did not receive speak message"
             assert received[0].data["utterance"] == "hello from hub"
         finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
             b.stop_all()
 
 
@@ -226,13 +236,14 @@ class TestHiveMessageBusClientBinaryData:
         from hivemind_bus_client.message import HiveMindBinaryPayloadType
 
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        # whitelist-only ACL: grant the types this satellite injects.
-        m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
-                             allowed_types=["recognizer_loop:utterance"])
-        b.start_all()
-
+        client = None
         try:
+            m = b.add_master("M0", use_loopback=True)
+            # whitelist-only ACL: grant the types this satellite injects.
+            m.register_satellite("test-key", password="Corr3ct-Horse!Batt3ry_v3xx",
+                                 allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
+
             client = _make_client(m.network_protocol.url, "test-key", "Corr3ct-Horse!Batt3ry_v3xx")
             client.connect(site_id="loopback-site")
             client.wait_for_handshake(timeout=10)
@@ -257,8 +268,9 @@ class TestHiveMessageBusClientBinaryData:
             assert len(audio_calls) > 0, \
                 f"No RAW_AUDIO calls on hub. All calls: {[c.bin_type for c in calls]}"
         finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
             b.stop_all()
