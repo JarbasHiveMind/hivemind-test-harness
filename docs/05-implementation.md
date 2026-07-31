@@ -83,11 +83,11 @@ class TestAgentProtocol(AgentProtocol):
             _orig_emit(msg)
 
         self.bus.emit = _recording_emit
-        # Mirror OVOSProtocol.register_bus_handlers() — enables reverse routing
+        # Mirror OVOSProtocol.register_bus_handlers(): enables reverse routing
         self.register_bus_handlers()
 
     # -----------------------------------------------------------------------
-    # Reverse routing — ported verbatim from OVOSProtocol in hpm.py
+    # Reverse routing: ported verbatim from OVOSProtocol in hpm.py
     # -----------------------------------------------------------------------
 
     def register_bus_handlers(self) -> None:
@@ -95,8 +95,8 @@ class TestAgentProtocol(AgentProtocol):
 
         Exact port of OVOSProtocol.register_bus_handlers().
         Two paths:
-        1. ``hive.send.downstream`` — explicit routing request from an OVOS component.
-        2. ``message`` (catch-all) — route any message whose ``destination`` context
+        1. ``hive.send.downstream``: explicit routing request from an OVOS component.
+        2. ``message`` (catch-all): route any message whose ``destination`` context
            matches a connected satellite peer back to that peer.
         """
         self.bus.on("hive.send.downstream", self.handle_send)
@@ -173,7 +173,7 @@ class TestNetworkProtocol(NetworkProtocol):
     """
 
     def run(self):
-        # No server to start — topology wiring happens through connect_satellite()
+        # No server to start: topology wiring happens through connect_satellite()
         pass
 
     def connect_satellite(self,
@@ -386,7 +386,7 @@ class SatelliteNode:
         if isinstance(message, Message):
             message = HiveMessage(HiveMessageType.BUS, payload=message)
         self.recorder.record("out", message.msg_type, message.payload, "self")
-        # Deliver directly to master's protocol — no socket involved
+        # Deliver directly to master's protocol, no socket involved
         self._master.hm_protocol.handle_message(message, self._connection)
 
     def _receive_raw(self, payload: Union[str, bytes], is_binary: bool) -> None:
@@ -651,7 +651,7 @@ def test_blacklisted_type_not_sent_to_satellite(minimal_topology):
                     payload=Message("speak", {"utterance": "hello"}))
     )
 
-    # S0 should not receive it — blacklist enforced in HiveMindClientConnection.send()
+    # S0 should not receive it: blacklist enforced in HiveMindClientConnection.send()
     s0.recorder.assert_not_received("speak")
 ```
 
@@ -683,3 +683,6 @@ pip install -e .
 
 No WebSocket library needed for running tests. `websocket-client` is still pulled in
 transitively by `hivemind-websocket-client`, but the test harness never calls `run_forever()`.
+
+---
+[← Test Scenarios](04-test-scenarios.md) · [Home](index.md) · [E2E Skill Tests: Real OVOS Skills Through HiveMind →](06-e2e-skill-tests.md)

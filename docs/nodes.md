@@ -21,3 +21,6 @@ Simulates a HiveMind satellite device.
 ## In-Process Communication
 Because both nodes reside in the same memory space, tests can easily inspect the state of the master's database, the recorder's logs, or the internal bus of the mock agent during execution.
 - **Instrumentation**: The `_instrument_master()` helper function hooks into the protocol's message handlers to feed the `recorder`.
+
+---
+[← API Reference: hivemind-test-harness](api.md) · [Home](index.md)

@@ -218,3 +218,6 @@ M0
 | Mesh | N masters × M satellites cross-linked |
 | Stress Star | 1 master + 50+ satellites |
 | Mixed Protocol | Heterogeneous protocol versions |
+
+---
+[← Protocol Coverage](02-protocol-coverage.md) · [Home](index.md) · [Test Scenarios →](04-test-scenarios.md)

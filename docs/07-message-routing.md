@@ -59,12 +59,12 @@ with the responsible code at each step.
 ```
 
 In tests, assertions happen at two points:
-- **Master side**: `agent_protocol.injected` — what the OVOS bus received
-- **Satellite side**: `satellite.internal_bus` or `satellite.recorder` — what the satellite received back
+- **Master side**: `agent_protocol.injected`: what the OVOS bus received
+- **Satellite side**: `satellite.internal_bus` or `satellite.recorder`: what the satellite received back
 
 ---
 
-## 2. `Message.reply()` — The Root Mechanism
+## 2. `Message.reply()`: The Root Mechanism
 
 The entire reverse routing mechanism rests on a single method in `ovos-bus-client`:
 
@@ -90,13 +90,13 @@ When `IntentService` emits the match message as a reply, the swap fires:
 - `destination` becomes `"HiveMindV0.0@127.0.0.1:8222/0"` (the satellite peer ID)
 - `source` becomes `"skills"`
 
-Every subsequent message in the chain — `speak`, `mycroft.skill.handler.complete`,
-`ovos.utterance.handled` — is also a `.reply()` of a `.reply()`, so the destination keeps pointing
+Every subsequent message in the chain: `speak`, `mycroft.skill.handler.complete`,
+`ovos.utterance.handled`: is also a `.reply()` of a `.reply()`, so the destination keeps pointing
 at the peer that originated the utterance.
 
 `TestAgentProtocol.handle_internal_mycroft()` (ported from `OVOSProtocol.handle_internal_mycroft()`
 in `ovos-bus-client/ovos_bus_client/hpm.py:79-102`) reads `context["destination"]` and routes
-the message to the matching peer connection. No explicit registration per message type — the
+the message to the matching peer connection. No explicit registration per message type: the
 destination context key is the sole routing mechanism.
 
 ---
@@ -110,7 +110,7 @@ All keys that participate in routing, with the exact location they are set:
 | `context["peer"]` | `handle_inject_agent_msg` | `hivemind_core/protocol.py:949` | Satellite peer ID (e.g. `"HiveMindV0.0@127.0.0.1:8222/0"`) | Identifies which satellite sent this; test assertions use this to verify routing |
 | `context["source"]` (inbound) | `handle_inject_agent_msg` | `protocol.py:949` | Same as `peer` | OVOS origin identifier; becomes `destination` after `Message.reply()` swap |
 | `context["destination"]` (inbound) | `handle_inject_agent_msg` | `protocol.py:942-945` | `"skills"` (default), or `["audio"]` for injected `speak` | Prevents message being treated as broadcast by OVOS |
-| `context["session"]` | `_update_blacklist` | `protocol.py:903` | `client.sess.serialize()` — full `Session` dict | Per-satellite session state injected before OVOS sees the message |
+| `context["session"]` | `_update_blacklist` | `protocol.py:903` | `client.sess.serialize()`: full `Session` dict | Per-satellite session state injected before OVOS sees the message |
 | `context["session"]["session_id"]` | `Session.__init__` | `ovos-bus-client/session.py:311` | UUID (or explicit string e.g. `"test-session"`) | Stable identifier that persists across utterances in the same session |
 | `context["session"]["blacklisted_skills"]` | `_update_blacklist` | `protocol.py:918` | List of skill IDs from DB + session | ACL enforcement: IntentService skips these skills |
 | `context["session"]["blacklisted_intents"]` | `_update_blacklist` | `protocol.py:921` | List of intent names | ACL enforcement: IntentService skips these intents |
@@ -120,14 +120,14 @@ All keys that participate in routing, with the exact location they are set:
 ### Key diagnostic: what to assert in tests
 
 ```python
-# On the master side — what arrived at the OVOS bus
+# On the master side: what arrived at the OVOS bus
 msg = master.agent_protocol.last_injected("recognizer_loop:utterance")
 assert msg.context["peer"] == satellite._connection.peer  # routing identity
 assert msg.context["source"] == satellite._connection.peer  # same
 assert msg.context["session"]["session_id"] == "expected-session-id"
 assert "bad-skill.openvoiceos" not in msg.context["session"]["blacklisted_skills"]
 
-# On the satellite side — what came back from a skill
+# On the satellite side: what came back from a skill
 # (requires a real OVOS skill or manual bus.emit on the master)
 received = []
 satellite.internal_bus.once("speak", received.append)
@@ -137,7 +137,7 @@ assert received[0].context["source"] == "hive"  # HiveMind stamped it
 
 ---
 
-## 4. Session ID — Full Lifecycle
+## 4. Session ID: Full Lifecycle
 
 `session_id` is the stable identifier that lets OVOS maintain conversational state across
 multiple utterances from the same satellite.
@@ -162,7 +162,7 @@ satellite.send(message)
 **2. Extracted and normalised at master (`protocol.py:903`)**
 
 `_update_blacklist()` replaces `context["session"]` with a fresh serialization of
-`client.sess` — the master's per-connection session tracking object. This ensures the
+`client.sess`: the master's per-connection session tracking object. This ensures the
 master's DB-enforced blacklists are always injected, and that `session_id` from the
 satellite's payload is honoured (HiveMind copies the satellite's session into `client.sess`
 at line 604-606 during `handle_bus_message`).
@@ -186,7 +186,7 @@ sess.activate_skill(match.skill_id)            # added to active_skills
 reply.context["session"] = sess.serialize()    # packed back into reply context
 ```
 
-The skill receives the reply message — which includes the updated session — and can read
+The skill receives the reply message: which includes the updated session: and can read
 `Session.from_message(message)` to get the current session state.
 
 **5. Returned to satellite in the `speak` reply**
@@ -235,9 +235,9 @@ in every real HiveMind deployment.
 
 | Aspect | `TestAgentProtocol` (harness) | `OVOSProtocol` (production) |
 |--------|-------------------------------|------------------------------|
-| Bus backend | `FakeBus` — in-process, synchronous | `MessageBusClient` — TCP to ovos-messagebus on port 8181 |
-| Message recording | `self.injected: List[Message]` | None — live system does not record |
-| `register_bus_handlers()` | Identical — subscribes `hive.send.downstream` + `message` | Identical |
+| Bus backend | `FakeBus`: in-process, synchronous | `MessageBusClient`: TCP to ovos-messagebus on port 8181 |
+| Message recording | `self.injected: List[Message]` | None: live system does not record |
+| `register_bus_handlers()` | Identical: subscribes `hive.send.downstream` + `message` | Identical |
 | `handle_send()` | Verbatim port (`agent.py:74-102`) | `hpm.py:39-77` |
 | `handle_internal_mycroft()` | Verbatim port (`agent.py:104-130`) | `hpm.py:79-102` |
 | Client isolation | `destination` context key → only target peer receives | Same |
@@ -255,12 +255,12 @@ calls `bus.emit("speak", reply)`, the `message` catch-all listener in
 `register_bus_handlers()` fires synchronously. There is no network latency or thread scheduling
 to contend with. This makes test assertions on routing deterministic.
 
-The only path `FakeBus` cannot cover is the TCP socket connecting to a real OVOS messagebus —
+The only path `FakeBus` cannot cover is the TCP socket connecting to a real OVOS messagebus : 
 but that socket is exactly what `OvoscopeAgentProtocol` adds (see section 6).
 
 ---
 
-## 6. `OvoscopeAgentProtocol` — Live OVOS Integration
+## 6. `OvoscopeAgentProtocol`: Live OVOS Integration
 
 `OvoscopeAgentProtocol` extends `TestAgentProtocol` by attaching a real **MiniCroft** instance
 (from the `ovoscope` library) as the agent bus backend. MiniCroft runs a full OVOS
@@ -276,7 +276,7 @@ class OvoscopeAgentProtocol(TestAgentProtocol):
 ```
 
 The same `handle_internal_mycroft()` path runs. The difference is that `bus.emit()` now
-triggers the full OVOS intent pipeline — transformer plugins, Adapt, Padatious, skills —
+triggers the full OVOS intent pipeline: transformer plugins, Adapt, Padatious, skills : 
 before any skill `speak` reply fires back through the routing handler.
 
 **`isolate_config=True` (ovoscope ≥ 0.7.2)** is critical: it clears the host OVOS config
@@ -310,7 +310,7 @@ Use `TestAgentProtocol` (with manual `bus.emit`) when:
 
 ---
 
-## 7. `ovos.utterance.handled` — The EOF Marker
+## 7. `ovos.utterance.handled`: The EOF Marker
 
 Every utterance processing path in `IntentService` ends with:
 
@@ -333,7 +333,7 @@ agent.assert_skill_not_emitted("speak")           # no speak after intent failur
 
 ## 8. Practical Test Patterns
 
-### Pattern A — Verify utterance arrived with correct peer context
+### Pattern A: Verify utterance arrived with correct peer context
 
 ```python
 def test_peer_context_set(simple_topology):
@@ -351,7 +351,7 @@ def test_peer_context_set(simple_topology):
     assert msg.context["session"]["session_id"] == "s1"
 ```
 
-### Pattern B — Verify skill response routed back to satellite
+### Pattern B: Verify skill response routed back to satellite
 
 ```python
 def test_speak_reverse_routed(ovoscope_topology):
@@ -370,7 +370,7 @@ def test_speak_reverse_routed(ovoscope_topology):
     assert speak.context["source"] == "hive"    # HiveMind stamped it
 ```
 
-### Pattern C — Verify session_id is stable across two exchanges
+### Pattern C: Verify session_id is stable across two exchanges
 
 ```python
 def test_session_continuity(ovoscope_topology):
@@ -394,7 +394,7 @@ def test_session_continuity(ovoscope_topology):
     assert msg2.context["session"]["session_id"] == "conversation-42"
 ```
 
-### Pattern D — Assert ACL blacklist injected into session
+### Pattern D: Assert ACL blacklist injected into session
 
 ```python
 def test_skill_blacklist_injected(b, master, satellite):
@@ -414,12 +414,15 @@ def test_skill_blacklist_injected(b, master, satellite):
 
 Location: `hivemind-core/hivemind_core/protocol.py:926-956`
 
-1. **ACL authorization** (`client.authorize(message)`) — checks `allowed_types` and `msg_blacklist`; drops message if not authorized (line 936-938)
-2. **Session injection** (`_update_blacklist(message, client)`) — replaces `context["session"]` with `client.sess.serialize()` and appends DB-sourced blacklists (lines 941, 903-924)
-3. **Destination normalisation** — sets `context["destination"] = "skills"` if not already set, or `["audio"]` for injected speak commands (lines 942-945)
-4. **Peer stamping** — sets `context["peer"] = context["source"] = client.peer` (line 949); this is the peer ID that `Message.reply()` will later place into `destination`
-5. **Bus emit** — `bus.emit(message)` injects the message into the OVOS bus (line 953)
-6. **Agent bus callback** — if `agent_bus_callback` is set (live HiveMind only), calls it (lines 955-956)
+1. **ACL authorization** (`client.authorize(message)`): checks `allowed_types` and `msg_blacklist`; drops message if not authorized (line 936-938)
+2. **Session injection** (`_update_blacklist(message, client)`): replaces `context["session"]` with `client.sess.serialize()` and appends DB-sourced blacklists (lines 941, 903-924)
+3. **Destination normalisation**: sets `context["destination"] = "skills"` if not already set, or `["audio"]` for injected speak commands (lines 942-945)
+4. **Peer stamping**: sets `context["peer"] = context["source"] = client.peer` (line 949); this is the peer ID that `Message.reply()` will later place into `destination`
+5. **Bus emit**: `bus.emit(message)` injects the message into the OVOS bus (line 953)
+6. **Agent bus callback**: if `agent_bus_callback` is set (live HiveMind only), calls it (lines 955-956)
 
 After step 5 the message is in OVOS territory. HiveMind's job is done until a reply comes back
 through `handle_internal_mycroft()`.
+
+---
+[← E2E Skill Tests — Real OVOS Skills Through HiveMind](06-e2e-skill-tests.md) · [Home](index.md) · [API Reference: hivemind-test-harness →](api.md)

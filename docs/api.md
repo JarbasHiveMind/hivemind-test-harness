@@ -1,10 +1,10 @@
-# API Reference — hivemind-test-harness
+# API Reference: hivemind-test-harness
 
 ---
 
 ## `TopologyBuilder`
 
-`class TopologyBuilder — hivemind_test_harness/topology.py:87`
+`class TopologyBuilder`: hivemind_test_harness/topology.py:87
 
 Assembles and wires `MasterNode`, `SatelliteNode`, and `RelayNode` instances into a testable network.
 
@@ -22,7 +22,7 @@ Assembles and wires `MasterNode`, `SatelliteNode`, and `RelayNode` instances int
 
 ## `MasterNode`
 
-`class MasterNode — hivemind_test_harness/node.py:84`
+`class MasterNode`: hivemind_test_harness/node.py:84
 
 Wraps a real `HiveMindListenerProtocol` with test plugin backends.
 
@@ -39,8 +39,8 @@ Wraps a real `HiveMindListenerProtocol` with test plugin backends.
 
 | Method | Signature | Description |
 |---|---|---|
-| `create` | `(name: str, **kwargs) -> MasterNode` | Factory; creates fully instrumented node |
-| `register_satellite` | `(key, password=None, is_admin=False, can_escalate=True, can_propagate=True, allowed_types=None, msg_blacklist=None, skill_blacklist=None, intent_blacklist=None) -> None` | Pre-populate DB for satellite auth |
+| `create` | `(name: str, **kwargs) -> MasterNode` | Factory. Creates a fully instrumented node |
+| `register_satellite` | `(key, password=None, is_admin=False, can_escalate=True, can_propagate=True, allowed_types=None, msg_blacklist=None, skill_blacklist=None, intent_blacklist=None) -> None` | Pre-populate the database for satellite authentication |
 | `send_to_satellite` | `(peer: str, message: HiveMessage) -> None` | Send directly to a connected client |
 | `emit_on_bus` | `(message: Message) -> None` | Simulate OVOS skill emitting a response |
 | `wait_for` | `(msg_type: str, direction="in", timeout=5.0) -> RecordedMessage` | Block until message recorded |
@@ -49,7 +49,7 @@ Wraps a real `HiveMindListenerProtocol` with test plugin backends.
 
 ## `SatelliteNode`
 
-`class SatelliteNode — hivemind_test_harness/node.py:171`
+`class SatelliteNode`: hivemind_test_harness/node.py:171
 
 Simulates a HiveMind satellite client.
 
@@ -60,26 +60,26 @@ Simulates a HiveMind satellite client.
 | `internal_bus` | `FakeBus` | Internal OVOS bus for receiving skill responses |
 | `slave_protocol` | `HiveMindSlaveProtocol` | The real slave protocol under test |
 | `recorder` | `MessageRecorder` | Records all messages through this node |
-| `_connection` | `HiveMindClientConnection` | Set after `connect()`; the upstream connection |
-| `_master` | `MasterNode` | Set after `connect()`; the upstream master |
+| `_connection` | `HiveMindClientConnection` | Set after `connect()`. The upstream connection |
+| `_master` | `MasterNode` | Set after `connect()`. The upstream master |
 
 | Method | Signature | Description |
 |---|---|---|
-| `create` | `(name: str, **kwargs) -> SatelliteNode` | Factory; creates node with FakeBus and recorder |
+| `create` | `(name: str, **kwargs) -> SatelliteNode` | Factory. Creates a node with FakeBus and recorder |
 | `connect` | `(master: MasterNode) -> None` | Wire to master in-process and complete handshake |
-| `send` | `(message: HiveMessage | Message) -> None` | Send upstream; `Message` auto-wrapped as BUS |
+| `send` | `(message: HiveMessage | Message) -> None` | Send upstream. `Message` is auto-wrapped as BUS |
 | `wait_for` | `(msg_type: str, timeout=5.0) -> RecordedMessage` | Block until inbound message recorded |
 | `wait_for_bus` | `(ovos_type: str, timeout=5.0) -> Message` | Block until OVOS message arrives on `internal_bus` |
 
 **Properties via `_connection`:**
-- `satellite._connection.peer` — the peer ID assigned by the master after handshake
-- `satellite.identity.access_key` — the API key used for authentication
+- `satellite._connection.peer`: the peer ID assigned by the master after handshake
+- `satellite.identity.access_key`: the API key used for authentication
 
 ---
 
 ## `RelayNode`
 
-`class RelayNode — hivemind_test_harness/topology.py:46`
+`class RelayNode`: hivemind_test_harness/topology.py:46
 
 Dual-role node: satellite (upstream) + master (downstream). Created by `TopologyBuilder.add_relay()`, which returns `(SatelliteNode, MasterNode)`.
 
@@ -87,7 +87,7 @@ Dual-role node: satellite (upstream) + master (downstream). Created by `Topology
 
 ## `MessageRecorder`
 
-`class MessageRecorder — hivemind_test_harness/recorder.py`
+`class MessageRecorder`: hivemind_test_harness/recorder.py
 
 Attached to every node. Captures all messages at protocol entry/exit points.
 
@@ -119,13 +119,13 @@ Attached to every node. Captures all messages at protocol entry/exit points.
 
 ## `TestAgentProtocol`
 
-`class TestAgentProtocol — hivemind_test_harness/plugins/agent.py:27`
+`class TestAgentProtocol`: hivemind_test_harness/plugins/agent.py:27
 
 `AgentProtocol` backed by `FakeBus`. Records injected messages and implements reverse routing (ported verbatim from `OVOSProtocol`).
 
 | Attribute | Type | Description |
 |---|---|---|
-| `bus` | `FakeBus` | The agent bus; messages emitted here trigger reverse routing |
+| `bus` | `FakeBus` | The agent bus. Messages emitted here trigger reverse routing |
 | `injected` | `list[Message]` | All messages that passed through `bus.emit()` |
 
 | Method | Signature | Description |
@@ -141,7 +141,7 @@ Attached to every node. Captures all messages at protocol entry/exit points.
 
 ## `TestBinaryProtocol`
 
-`class TestBinaryProtocol — hivemind_test_harness/plugins/binary.py:23`
+`class TestBinaryProtocol`: hivemind_test_harness/plugins/binary.py:23
 
 Records all binary handler invocations.
 
@@ -173,19 +173,22 @@ Records all binary handler invocations.
 
 ## `TestNetworkProtocol`
 
-`class TestNetworkProtocol — hivemind_test_harness/plugins/network.py:18`
+`class TestNetworkProtocol`: hivemind_test_harness/plugins/network.py:18
 
 Socketless `NetworkProtocol`. `run()` is a no-op.
 
 | Method | Signature | Description |
 |---|---|---|
 | `run` | `() -> None` | No-op (nothing to bind) |
-| `connect_satellite` | `(satellite: SatelliteNode, db_key: str) -> HiveMindClientConnection` | Wire satellite in-process; triggers HELLO + HANDSHAKE |
+| `connect_satellite` | `(satellite: SatelliteNode, db_key: str) -> HiveMindClientConnection` | Wire satellite in-process. Triggers HELLO + HANDSHAKE |
 
 ---
 
 ## `InProcessHiveShim`
 
-`class InProcessHiveShim — hivemind_test_harness/node.py:35`
+`class InProcessHiveShim`: hivemind_test_harness/node.py:35
 
 Minimal stand-in for `HiveMessageBusClient` that allows `HiveMindSlaveProtocol` to operate in-process without a WebSocket connection.
+
+---
+[← Message Routing & Session Flow](07-message-routing.md) · [Home](index.md) · [Node Implementations →](nodes.md)

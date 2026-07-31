@@ -1,4 +1,4 @@
-# E2E Skill Tests — Real OVOS Skills Through HiveMind
+# E2E Skill Tests: Real OVOS Skills Through HiveMind
 
 End-to-end tests that route utterances through the full HiveMind pipeline with real OVOS skill plugins running in MiniCroft. 81 tests across 11 files.
 
@@ -405,3 +405,6 @@ Tests auto-skip via `@pytest.mark.skipif(skill_missing(...))` when a skill is no
 
 ### First run is slow
 MiniCroft trains Padatious intent models on first boot (~2 minutes). Subsequent runs use cached models from `~/.local/share/mycroft/intent_cache/`.
+
+---
+[← Implementation Plan](05-implementation.md) · [Home](index.md) · [Message Routing & Session Flow →](07-message-routing.md)
