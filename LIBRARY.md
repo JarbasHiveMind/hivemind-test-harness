@@ -134,13 +134,32 @@ Builder for assembling test topologies.
   Create and register a satellite under an upstream node.
   
 - `add_relay(name, upstream, **kwargs) → RelayNode`  
-  Create a dual-role relay (master facing upstream, satellite facing downstream).
+  Create a dual-role relay: a satellite facing *upstream* that is also a master
+  for its own downstream satellites. Both sides share one agent bus.
+  Returns a `RelayNode` with:
+  - `relay.upstream` — the `SatelliteNode` side (registered as `{name}_sat`)
+  - `relay.listener` — the `MasterNode` side (registered as `{name}_master`).
+    **This is the node to hang downstream satellites off.**
+  - `relay.bus` — the shared `FakeBus`
+
+  ```python
+  r1 = b.add_relay("R1", upstream=b.get_master("M0"))
+  b.add_satellite("S0", upstream=r1.listener)
+  # add_satellite/add_relay also accept the RelayNode itself as `upstream`:
+  r2 = b.add_relay("R2", upstream=r1)
+  ```
   
 - `get_master(name) → MasterNode`  
-  Retrieve a registered master.
+  Retrieve a registered master. Note a relay's master side is named
+  `{name}_master`, so `b.get_master("R1_master")`.
   
 - `get_satellite(name) → SatelliteNode`  
-  Retrieve a registered satellite.
+  Retrieve a registered satellite. A relay's satellite side is `{name}_sat`.
+  
+- `get_relay(name) → RelayNode`  
+  Retrieve the combined `RelayNode` that `add_relay(name, ...)` returned —
+  the same object, keyed by the plain name (`b.get_relay("R1")`), not by the
+  `_sat` / `_master` internal names.
   
 - `start_all()`  
   Start all nodes in the topology (spawn threads, bind ports, etc).
@@ -340,7 +359,7 @@ def test_escalate_reaches_top_master():
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
         
-        s0.connect(b.get_relay("R1"))  # Connect to first relay
+        s0.connect(b.get_relay("R1").listener)  # attach to the relay's master side
         
         # Send ESCALATE from S0
         # Should reach M0 through: S0 → R1 → R0 → M0
