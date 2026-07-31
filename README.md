@@ -18,15 +18,15 @@ assertions, preset scenarios) lives in hivescope.
 
 The `tests/` directory covers:
 
-- **Protocol mechanics** — handshake, ACL, routing, BUS/BROADCAST/PROPAGATE/ESCALATE/
+- **Protocol mechanics**: handshake, ACL, routing, BUS/BROADCAST/PROPAGATE/ESCALATE/
   SHARED_BUS/PING, QUERY/CASCADE, INTERCOM, BINARY, unimplemented-type handling
-- **Topology tests** — multi-relay chains, nested hubs (`test_all_topologies.py`,
+- **Topology tests**: multi-relay chains, nested hubs (`test_all_topologies.py`,
   `test_routing.py`, relay ACL and skill tests)
-- **Stress** — concurrent connections, large satellite fan-out (marked `@pytest.mark.slow`)
-- **Cross-repo interop** — embedded clients (`test_embedded_*.py`), JavaScript e2e
+- **Stress**: concurrent connections, large satellite fan-out (marked `@pytest.mark.slow`)
+- **Cross-repo interop**: embedded clients (`test_embedded_*.py`), JavaScript e2e
   (`test_js_e2e.py`), MicroPython (`test_micropython_e2e.py`), audio transformers
   (`test_audio_transformers.py`)
-- **Skills e2e** — real OVOS skill execution through HiveMind using
+- **Skills e2e**: real OVOS skill execution through HiveMind using
   `OvoscopeAgentProtocol` (live MiniCroft): `test_e2e_skills.py`,
   `test_e2e_converse.py`, `test_e2e_get_response.py`, `test_e2e_session.py`,
   `test_e2e_ocp.py`, `test_e2e_relay_skills.py`, and more
@@ -35,8 +35,8 @@ The `tests/` directory covers:
 
 ## Dependency: hivescope
 
-All test infrastructure — `TopologyBuilder`, `MasterNode`, `SatelliteNode`, `RelayNode`,
-`MessageRecorder`, fixtures, assertion helpers, and preset scenarios — is provided by
+All test infrastructure (`TopologyBuilder`, `MasterNode`, `SatelliteNode`, `RelayNode`,
+`MessageRecorder`, fixtures, assertion helpers, and preset scenarios) is provided by
 [hivescope](https://github.com/JarbasHiveMind/hivescope). API reference for those classes
 belongs in hivescope's documentation.
 
@@ -98,7 +98,7 @@ def test_escalate_reaches_top_master(chain_topology):
 ## Running Tests
 
 ```bash
-# Standard run — excludes slow/stress
+# Standard run: excludes slow/stress
 pytest tests/ -v --timeout=60 -m "not slow"
 
 # Include stress and large-topology tests

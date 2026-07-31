@@ -15,8 +15,8 @@ The harness achieves this by implementing the three plugin interfaces from
 | `NetworkProtocol` | `HiveMindWebsocketProtocol` (WebSocket server) | `TestNetworkProtocol` (in-process wiring, no sockets) |
 | `BinaryDataHandlerProtocol` | `AudioBinaryProtocol` | `TestBinaryProtocol` (records every handler call) |
 
-Everything that matters — `HiveMindListenerProtocol.handle_message()`, all routing logic,
-encryption/decryption, handshake, session management, ACL — runs exactly as in production.
+Everything that matters (`HiveMindListenerProtocol.handle_message()`, all routing logic,
+encryption/decryption, handshake, session management, ACL) runs exactly as in production.
 Only the byte transport is replaced.
 
 ---
@@ -80,14 +80,14 @@ satellite._receive_raw(payload, is_binary)
 ```
 
 This path exercises:
-- `HiveMindClientConnection.send()` including encryption and blacklist checks ✅
-- `HiveMindClientConnection.decode()` including decryption ✅
-- All of `HiveMindListenerProtocol` routing logic ✅
-- `HiveMindSlaveProtocol` handler callbacks on the satellite side ✅
+- `HiveMindClientConnection.send()`, including encryption and blacklist checks
+- `HiveMindClientConnection.decode()`, including decryption
+- All of `HiveMindListenerProtocol` routing logic
+- `HiveMindSlaveProtocol` handler callbacks on the satellite side
 
-What it skips:
-- WebSocket framing — intentional, not under test
-- TCP/TLS — intentional
+What it skips, by design:
+- WebSocket framing
+- TCP/TLS
 
 ### `TestAgentProtocol(AgentProtocol)`
 
@@ -260,5 +260,8 @@ def connect(satellite: SatelliteNode, master: MasterNode):
     satellite._master = master
 ```
 
-The handshake exchange happens synchronously through direct calls — no threads needed,
-no timeouts to tune, deterministic every run.
+The handshake exchange happens synchronously through direct calls. It needs no threads
+and no timeouts to tune, and it runs deterministically every time.
+
+---
+[Home](index.md) · [Protocol Coverage →](02-protocol-coverage.md)
