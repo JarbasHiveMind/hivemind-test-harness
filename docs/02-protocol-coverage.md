@@ -3,7 +3,7 @@
 Test coverage status for all HiveMind protocol message types, binary payload
 types, and related features.
 
-**403 tests across 46 modules** collect in a plain checkout. Four embedded
+**404 tests across 46 modules** collect in a plain checkout. Four embedded
 modules (68 more tests) skip themselves unless the MicroPython client checkout
 is present — point `HIVEMIND_MICROPYTHON_CLIENT` at it, or CI's
 `micropython-e2e` job supplies it. Regenerate the counts below with::
@@ -118,7 +118,7 @@ Counts from `pytest tests --collect-only -q`.
 
 | File | Tests | Purpose |
 |---|---|---|
-| `test_acl.py` | 5 | Skill/intent blacklist injection, allowed_types admission + deny code |
+| `test_acl.py` | 6 | Skill/intent blacklist injection, allowed_types admission + deny code |
 | `test_all_topologies.py` | 27 | Cross-topology protocol validation |
 | `test_audio_transformers.py` | 8 | Audio pipeline transformer integration |
 | `test_binary.py` | 7 | All 7 binary payload types |
@@ -132,7 +132,7 @@ Counts from `pytest tests --collect-only -q`.
 | `test_ping_exactly_once.py` | 11 | PING delivered exactly once per node across relays |
 | `test_ping_pong.py` | 49 | PING network topology discovery |
 | `test_propagate.py` | 6 | Fan-out + escalate, can_propagate ACL |
-| `test_protocol_fixes.py` | 8 | Regression tests for bugs fixed in core/client |
+| `test_protocol_fixes.py` | 7 | Regression tests for bugs fixed in core/client |
 | `test_protocol_rules.py` | 14 | Protocol invariant validation |
 | `test_query.py` | 6 | QUERY local answer, escalate on timeout, relay chain, ACL |
 | `test_route_metadata.py` | 8 | Route/hop metadata carried on forwarded messages |
