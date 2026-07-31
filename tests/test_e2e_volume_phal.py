@@ -21,10 +21,13 @@ from typing import List, Optional
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
+    VOICE_TYPES,
     SKILL_VOLUME, skill_missing, make_utterance, assert_types_in_order,
     wait_for_satellite_message,
 )
@@ -114,7 +117,7 @@ def _install_volume_responder(bus) -> None:
 @pytest.fixture(scope="module")
 def volume_topology():
     """Boot MiniCroft with volume skill, connect one satellite with MockVolumePHAL."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_VOLUME])
+    agent = make_ovoscope_agent(skill_ids=[SKILL_VOLUME])
 
     # Install volume.get responder on hub bus (skill calls _query_volume)
     _install_volume_responder(agent.bus)
@@ -134,7 +137,8 @@ def volume_topology():
             pytest.skip("Volume skill intents not registered within 120s")
 
         b.add_master("M0", agent_protocol=agent)
-        b.add_satellite("S0", upstream=b.get_master("M0"))
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
         b.start_all()
 
         s0 = b.get_satellite("S0")
@@ -161,7 +165,7 @@ class TestMaxVolume:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("maximum volume", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
@@ -181,7 +185,7 @@ class TestMaxVolume:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("maximum volume", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -208,7 +212,7 @@ class TestMuteUnmute:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("mute", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -225,7 +229,7 @@ class TestMuteUnmute:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("unmute", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -251,7 +255,7 @@ class TestIncreaseDecrease:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("increase the volume", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -268,7 +272,7 @@ class TestIncreaseDecrease:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("decrease the volume", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -294,7 +298,7 @@ class TestPresetVolumes:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("default volume", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -309,7 +313,7 @@ class TestPresetVolumes:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("low volume", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -324,7 +328,7 @@ class TestPresetVolumes:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("high volume", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -348,7 +352,7 @@ class TestMuteToggle:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("toggle mute", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -374,11 +378,11 @@ class TestQueryVolume:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("what is the volume", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"'speak' not emitted for volume query.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -400,11 +404,11 @@ class TestVolumeSpeakRoutes:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("maximum volume", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
-        msg = wait_for_satellite_message(s0, "speak", timeout=10)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "speak from volume skill not forwarded to satellite"
 
 
@@ -423,7 +427,7 @@ class TestVolumeFullSequence:
         mock_phal.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("increase the volume", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
@@ -432,7 +436,7 @@ class TestVolumeFullSequence:
             "recognizer_loop:utterance",
             "mycroft.skill.handler.start",
             "mycroft.volume.increase",
-            "speak",
+            SpecMessage.SPEAK,
             "mycroft.skill.handler.complete",
             "ovos.utterance.handled",
         )

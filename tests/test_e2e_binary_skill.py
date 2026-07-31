@@ -16,12 +16,15 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 from hivemind_bus_client.serialization import HiveMindBinaryPayloadType
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
+    VOICE_TYPES,
     SKILL_HELLO,
     skill_missing, make_utterance, wait_for_satellite_message,
 )
@@ -40,7 +43,7 @@ FAKE_AUDIO = b"\x00\x01\x02\x03" * 1000  # 4KB fake WAV
 @pytest.fixture(scope="module")
 def binary_skill_topology():
     """MiniCroft with hello-world + binary protocol."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_HELLO])
+    agent = make_ovoscope_agent(skill_ids=[SKILL_HELLO])
 
     _deadline = time.monotonic() + 120
     while time.monotonic() < _deadline:
@@ -53,7 +56,8 @@ def binary_skill_topology():
     b = TopologyBuilder()
     try:
         b.add_master("M0", agent_protocol=agent)
-        b.add_satellite("S0", upstream=b.get_master("M0"))
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
         b.start_all()
         yield b, agent
     finally:
@@ -128,11 +132,11 @@ class TestBinaryThenSkill:
         time.sleep(1)
 
         # Step 2: Send utterance (simulates STT result)
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Skill did not respond after binary + utterance.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -144,11 +148,11 @@ class TestBinaryThenSkill:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
-        msg = wait_for_satellite_message(s0, "speak", timeout=10)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "speak not routed to satellite"
 
 
@@ -174,11 +178,11 @@ class TestBinaryMixedTraffic:
         s0.send(bin_msg)
 
         # Immediately send BUS utterance
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
         # Both should work
         m0.binary_protocol.assert_called("microphone_input")
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, "Skill should respond despite interleaved binary"

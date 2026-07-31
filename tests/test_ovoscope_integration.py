@@ -22,7 +22,7 @@ its utterance through the shared satellite connection.
 Test IDs
 --------
 TS-OVO-01   Utterance reaches MiniCroft bus via HiveMind satellite
-TS-OVO-02   complete_intent_failure emitted when no skills installed
+TS-OVO-02   ovos.intent.unmatched emitted when no skills installed
 TS-OVO-03   CaptureSession records the full OVOS message sequence
 TS-OVO-04   speak message from skill propagates back to satellite   [PLANNED]
 TS-OVO-05   Multi-utterance: second utterance reuses same session   [PLANNED]
@@ -34,10 +34,11 @@ TS-OVO-10   Relay topology: utterance escalates to OVOS master     [PLANNED]
 """
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 from ovos_bus_client.session import Session
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
+from tests.conftest import open_capture, make_ovoscope_agent, VOICE_TYPES
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
 # handlers run serially after that, so the repo-wide 30s default is far too
@@ -79,14 +80,14 @@ def ovoscope_topology():
     then teardown.  MiniCroft boot takes ~2 min on first run; subsequent calls
     (warm cache) are fast.
     """
-    agent = OvoscopeAgentProtocol(skill_ids=[])
+    agent = make_ovoscope_agent(skill_ids=[])
     b = TopologyBuilder()
     b.add_master("M0", agent_protocol=agent)
     # hivemind-core is deny-by-default; the satellite must be granted
     # recognizer_loop:utterance or its utterances are policy-denied at
     # admission and never reach MiniCroft.
     b.add_satellite("S0", upstream=b.get_master("M0"),
-                    allowed_types=["recognizer_loop:utterance"])
+                    allowed_types=VOICE_TYPES)
     b.start_all()
     yield b, agent
     b.stop_all()
@@ -137,20 +138,20 @@ class TestUtteranceRoutingToMiniCroft:
 
 
 # ---------------------------------------------------------------------------
-# TS-OVO-02  complete_intent_failure when no skills installed
+# TS-OVO-02  ovos.intent.unmatched when no skills installed
 # ---------------------------------------------------------------------------
 
 class TestCompleteIntentFailure:
     """TS-OVO-02 — with no skills, every utterance triggers intent failure."""
 
-    def test_complete_intent_failure_emitted(self, ovoscope_topology):
+    def test_intent_unmatched_emitted(self, ovoscope_topology):
         b, agent = ovoscope_topology
         agent.clear()
         s0 = b.get_satellite("S0")
 
         s0.send(_make_utterance("unrecognised utterance xyz"))
 
-        agent.wait_for_skill_emission("complete_intent_failure")
+        agent.wait_for_skill_emission(SpecMessage.INTENT_UNMATCHED)
 
     def test_no_speak_on_intent_failure(self, ovoscope_topology):
         b, agent = ovoscope_topology
@@ -160,7 +161,7 @@ class TestCompleteIntentFailure:
         s0.send(_make_utterance("unrecognised again"))
 
         agent.wait_for_skill_emission("ovos.utterance.handled")  # ensure processing done
-        agent.assert_skill_not_emitted("speak")
+        agent.assert_skill_not_emitted(SpecMessage.SPEAK)
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +176,7 @@ class TestCaptureSession:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(_make_utterance("test capture"))
         messages = cap.wait(timeout=10)
 
@@ -187,7 +188,7 @@ class TestCaptureSession:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(_make_utterance("another capture test"))
         messages = cap.wait(timeout=10)
 
@@ -200,7 +201,7 @@ class TestCaptureSession:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(_make_utterance("order check"))
         messages = cap.wait(timeout=10)
 
@@ -231,10 +232,10 @@ class TestSpeakPropagatesBackToSatellite:
       (e.g. skill-ovos-hello-world.openvoiceos).
     * Send the utterance from the satellite.
     * Assert:
-        - agent.wait_for_skill_emission("speak")
-        - s0.assert_received("speak", timeout=5)          ← HiveMind roundtrip
+        - agent.wait_for_skill_emission(SpecMessage.SPEAK)
+        - s0.assert_received(SpecMessage.SPEAK, timeout=5)          ← HiveMind roundtrip
         - agent.spoken_utterances()[0] matches expected text
-    * The key assertion is ``s0.assert_received("speak")`` — this proves
+    * The key assertion is ``s0.assert_received(SpecMessage.SPEAK)`` — this proves
       HiveMind routed the bus event back over the wire to the satellite.
 
     Skill needed: skill-ovos-hello-world.openvoiceos
@@ -245,18 +246,19 @@ class TestSpeakPropagatesBackToSatellite:
         reason="skill-ovos-hello-world not installed"
     )
     def test_speak_received_by_satellite(self):
-        agent = OvoscopeAgentProtocol(
+        agent = make_ovoscope_agent(
             skill_ids=["skill-ovos-hello-world.openvoiceos"]
         )
         b = TopologyBuilder()
         b.add_master("M0", agent_protocol=agent)
-        b.add_satellite("S0", upstream=b.get_master("M0"))
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
         b.start_all()
         try:
             s0 = b.get_satellite("S0")
             s0.send(_make_utterance("hello"))
-            agent.wait_for_skill_emission("speak")
-            s0.assert_received("speak", timeout=5)
+            agent.wait_for_skill_emission(SpecMessage.SPEAK)
+            s0.assert_received(SpecMessage.SPEAK, timeout=5)
         finally:
             b.stop_all()
             agent.shutdown()
@@ -348,7 +350,7 @@ class TestSharedBusPropagation:
     --------------------
     * Use ``b.add_satellite("S1", ..., shared_bus=True)``.
     * Send utterance from S0.
-    * Assert S1.assert_received("speak", timeout=5).
+    * Assert S1.assert_received(SpecMessage.SPEAK, timeout=5).
     * This validates HiveMind's SHARED_BUS broadcast interacts correctly with
       real skill responses on the OVOS bus.
     """
@@ -368,7 +370,7 @@ class TestRelayTopologyEscalation:
     * Use ``b.add_relay()``.
     * Send utterance from S_down.
     * Assert M0's OvoscopeAgentProtocol recorded ``recognizer_loop:utterance``.
-    * Assert ``complete_intent_failure`` is emitted (no skills loaded).
+    * Assert ``ovos.intent.unmatched`` is emitted (no skills loaded).
     * This validates the ESCALATE chain works with a real OVOS bus at the top.
     """
     pass

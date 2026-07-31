@@ -21,10 +21,13 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
+    VOICE_TYPES,
     SKILL_HELLO, SKILL_DATETIME, SKILL_VOLUME, SKILL_FALLBACK,
     skill_missing, make_utterance, assert_types_in_order,
     wait_for_satellite_message,
@@ -57,7 +60,7 @@ DEFAULT_PIPELINE = [
 @pytest.fixture(scope="module")
 def acl_agent():
     """Shared MiniCroft with multiple skills — reused across ACL fixtures."""
-    agent = OvoscopeAgentProtocol(
+    agent = make_ovoscope_agent(
         skill_ids=[SKILL_HELLO, SKILL_DATETIME, SKILL_VOLUME, SKILL_FALLBACK]
     )
     try:
@@ -84,8 +87,10 @@ def skill_blacklist_topology(acl_agent):
     try:
         b.add_master("M0", agent_protocol=acl_agent)
         b.add_satellite("S0", upstream=b.get_master("M0"),
-                         skill_blacklist=[SKILL_HELLO])
-        b.add_satellite("S1", upstream=b.get_master("M0"))
+                         skill_blacklist=[SKILL_HELLO],
+                         allowed_types=VOICE_TYPES)
+        b.add_satellite("S1", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
         b.start_all()
         yield b, acl_agent
     finally:
@@ -99,7 +104,8 @@ def intent_blacklist_topology(acl_agent):
     try:
         b.add_master("M0", agent_protocol=acl_agent)
         b.add_satellite("S0", upstream=b.get_master("M0"),
-                         intent_blacklist=[f"{SKILL_HELLO}:HelloWorldIntent"])
+                         intent_blacklist=[f"{SKILL_HELLO}:HelloWorldIntent"],
+                         allowed_types=VOICE_TYPES)
         b.start_all()
         yield b, acl_agent
     finally:
@@ -113,7 +119,8 @@ def msg_blacklist_topology(acl_agent):
     try:
         b.add_master("M0", agent_protocol=acl_agent)
         b.add_satellite("S0", upstream=b.get_master("M0"),
-                         msg_blacklist=["speak"])
+                         msg_blacklist=[SpecMessage.SPEAK],
+                         allowed_types=VOICE_TYPES)
         b.start_all()
         yield b, acl_agent
     finally:
@@ -135,7 +142,7 @@ class TestSkillBlacklist:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
@@ -150,11 +157,11 @@ class TestSkillBlacklist:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("what time is it", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Non-blacklisted skill did not speak.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -166,7 +173,7 @@ class TestSkillBlacklist:
         agent.clear()
         s1 = b.get_satellite("S1")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s1.send(make_utterance("hello world", ADAPT_PIPELINE, s1.shim.session_id))
         messages = cap.wait(timeout=15)
 
@@ -190,7 +197,7 @@ class TestIntentBlacklist:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
@@ -205,7 +212,7 @@ class TestIntentBlacklist:
         s0 = b.get_satellite("S0")
 
         padatious = ["ovos-padatious-pipeline-plugin-high"]
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("good morning", padatious, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
@@ -234,7 +241,7 @@ class TestMsgBlacklist:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
@@ -245,7 +252,7 @@ class TestMsgBlacklist:
 
         # But satellite should NOT receive speak
         time.sleep(1)
-        msg = wait_for_satellite_message(s0, "speak", timeout=2)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=2)
         assert msg is None, "speak should be blacklisted from delivery to satellite"
 
     def test_skill_execution_confirmed_on_hub(self, msg_blacklist_topology):
@@ -254,11 +261,11 @@ class TestMsgBlacklist:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, "speak should still be emitted on hub bus"
 
     def test_non_blacklisted_msg_still_delivered(self, msg_blacklist_topology):
@@ -268,7 +275,7 @@ class TestMsgBlacklist:
         s0 = b.get_satellite("S0")
 
         # Volume messages are not blacklisted
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("maximum volume", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 

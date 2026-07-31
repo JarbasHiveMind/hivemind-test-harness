@@ -18,10 +18,13 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
+    VOICE_TYPES,
     SKILL_HELLO, SKILL_VOLUME,
     skill_missing, make_utterance, wait_for_satellite_message,
 )
@@ -45,7 +48,7 @@ DEFAULT_PIPELINE = [
 @pytest.fixture(scope="module")
 def star_skill_topology():
     """Star: M0(MiniCroft) with S0, S1, S2."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_HELLO, SKILL_VOLUME])
+    agent = make_ovoscope_agent(skill_ids=[SKILL_HELLO, SKILL_VOLUME])
 
     # Install volume.get responder
     agent.bus.on("mycroft.volume.get",
@@ -62,9 +65,12 @@ def star_skill_topology():
     b = TopologyBuilder()
     try:
         b.add_master("M0", agent_protocol=agent)
-        b.add_satellite("S0", upstream=b.get_master("M0"))
-        b.add_satellite("S1", upstream=b.get_master("M0"))
-        b.add_satellite("S2", upstream=b.get_master("M0"))
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
+        b.add_satellite("S1", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
+        b.add_satellite("S2", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
         b.start_all()
         yield b, agent
     finally:
@@ -90,11 +96,11 @@ class TestResponseIsolation:
         s2_speak = []
         s0_evt = threading.Event()
 
-        s0.internal_bus.once("speak", lambda m: (s0_speak.append(m), s0_evt.set()))
-        s1.internal_bus.once("speak", lambda m: s1_speak.append(m))
-        s2.internal_bus.once("speak", lambda m: s2_speak.append(m))
+        s0.internal_bus.once(SpecMessage.SPEAK, lambda m: (s0_speak.append(m), s0_evt.set()))
+        s1.internal_bus.once(SpecMessage.SPEAK, lambda m: s1_speak.append(m))
+        s2.internal_bus.once(SpecMessage.SPEAK, lambda m: s2_speak.append(m))
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -123,8 +129,8 @@ class TestConcurrentUtterances:
         s0_evt = threading.Event()
         s1_evt = threading.Event()
 
-        s0.internal_bus.once("speak", lambda m: (s0_speak.append(m), s0_evt.set()))
-        s1.internal_bus.once("speak", lambda m: (s1_speak.append(m), s1_evt.set()))
+        s0.internal_bus.once(SpecMessage.SPEAK, lambda m: (s0_speak.append(m), s0_evt.set()))
+        s1.internal_bus.once(SpecMessage.SPEAK, lambda m: (s1_speak.append(m), s1_evt.set()))
 
         # Send from both satellites
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
@@ -158,7 +164,7 @@ class TestVolumeIsolation:
         s1.internal_bus.once("mycroft.volume.mute",
                               lambda m: s1_mute.append(m))
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("mute", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
