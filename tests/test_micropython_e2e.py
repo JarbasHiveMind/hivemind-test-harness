@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 
-def _find_mp_client_root() -> Path:
+def _find_mp_client_root():
     """Locate the hivemind-micropython-client checkout (see env override)."""
     env = os.environ.get("HIVEMIND_MICROPYTHON_CLIENT")
     if env:
@@ -34,12 +34,21 @@ def _find_mp_client_root() -> Path:
     for cand in candidates:
         if (cand / "hivemind" / "client.py").exists():
             return cand
-    return candidates[0]
+    return None
 
 
 _MP_CLIENT_ROOT = _find_mp_client_root()
-if str(_MP_CLIENT_ROOT) not in sys.path:
+if _MP_CLIENT_ROOT is not None and str(_MP_CLIENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_MP_CLIENT_ROOT))
+
+# The MicroPython client lives in a separate (currently private) repo. Without a
+# checkout the module is absent, so skip the whole file instead of failing
+# collection for every test in the run.
+pytest.importorskip(
+    "hivemind.client",
+    reason="hivemind-micropython-client checkout not found; set "
+           "HIVEMIND_MICROPYTHON_CLIENT to its path",
+)
 
 from hivemind.client import HiveMindClient, STATE_READY, STATE_DISCONNECTED
 from hivescope.topology import TopologyBuilder
@@ -53,8 +62,14 @@ def _extract_port(url: str) -> int:
 
 
 async def _connect_and_wait(client: HiveMindClient, timeout: float = 10) -> None:
-    """Launch client.connect() as background task and wait for STATE_READY."""
+    """Launch client.connect() as background task and wait for STATE_READY.
+
+    The background task is kept on the client so :func:`_close_clients` can
+    cancel it on the success path too — a task left running holds the socket
+    open and keeps the event loop alive after the test ends.
+    """
     task = asyncio.ensure_future(client.connect())
+    client._connect_task = task
     try:
         deadline = asyncio.get_event_loop().time() + timeout
         while client.state != STATE_READY:
@@ -64,9 +79,24 @@ async def _connect_and_wait(client: HiveMindClient, timeout: float = 10) -> None
                     f"(stuck in state {client.state})"
                 )
             await asyncio.sleep(0.1)
-    except Exception:
+    except BaseException:
         task.cancel()
         raise
+
+
+async def _close_clients(*clients) -> None:
+    """Disconnect every client and cancel its background connect task."""
+    for client in clients:
+        if client is None:
+            continue
+        await client.disconnect()
+        task = client.__dict__.pop("_connect_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 class TestMicroPythonE2E:
@@ -76,11 +106,12 @@ class TestMicroPythonE2E:
     async def test_micropython_handshake(self):
         """MPY-E2E-01: Client performs handshake and reaches STATE_READY."""
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("mpy-key", password="ember-thistle-cobalt-gust-24")
-        b.start_all()
-
+        client = None
         try:
+            m = b.add_master("M0", use_loopback=True)
+            m.register_satellite("mpy-key", password="ember-thistle-cobalt-gust-24")
+            b.start_all()
+
             client = HiveMindClient(
                 host="127.0.0.1",
                 port=_extract_port(m.network_protocol.url),
@@ -93,21 +124,23 @@ class TestMicroPythonE2E:
             await _connect_and_wait(client)
             assert client.state == STATE_READY
         finally:
+            await _close_clients(client)
             b.stop_all()
 
     @pytest.mark.asyncio
     async def test_micropython_utterance_roundtrip(self):
         """MPY-E2E-02: Client sends utterance, hub records BUS message."""
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        # hivemind-core is whitelist-only: grant the type the client injects.
-        m.register_satellite(
-            "mpy-key", password="ember-thistle-cobalt-gust-24",
-            allowed_types=["recognizer_loop:utterance"],
-        )
-        b.start_all()
-
+        client = None
         try:
+            m = b.add_master("M0", use_loopback=True)
+            # hivemind-core is whitelist-only: grant the type the client injects.
+            m.register_satellite(
+                "mpy-key", password="ember-thistle-cobalt-gust-24",
+                allowed_types=["recognizer_loop:utterance"],
+            )
+            b.start_all()
+
             client = HiveMindClient(
                 host="127.0.0.1",
                 port=_extract_port(m.network_protocol.url),
@@ -131,17 +164,19 @@ class TestMicroPythonE2E:
                 f"{[(msg.msg_type, msg.direction) for msg in m.recorder.records]}"
             )
         finally:
+            await _close_clients(client)
             b.stop_all()
 
     @pytest.mark.asyncio
     async def test_micropython_receive_speak_response(self):
         """MPY-E2E-03: Hub sends speak, client receives it."""
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        m.register_satellite("mpy-key", password="ember-thistle-cobalt-gust-24")
-        b.start_all()
-
+        client = None
         try:
+            m = b.add_master("M0", use_loopback=True)
+            m.register_satellite("mpy-key", password="ember-thistle-cobalt-gust-24")
+            b.start_all()
+
             received = []
 
             def on_bus(msg_type: str, data: dict, context: dict):
@@ -173,24 +208,26 @@ class TestMicroPythonE2E:
             speak_msgs = [r for r in received if r["type"] == "speak"]
             assert len(speak_msgs) > 0, f"Client got no speak. Received: {received}"
         finally:
+            await _close_clients(client)
             b.stop_all()
 
     @pytest.mark.asyncio
     async def test_multiple_micropython_clients(self):
         """MPY-E2E-04: Two clients connect and send independently."""
         b = TopologyBuilder()
-        m = b.add_master("M0", use_loopback=True)
-        m.register_satellite(
-            "mpy-1", password="vellum-otter-quartz-brim-40",
-            allowed_types=["recognizer_loop:utterance"],
-        )
-        m.register_satellite(
-            "mpy-2", password="pearl-anvil-cedar-lynx-hush-82",
-            allowed_types=["recognizer_loop:utterance"],
-        )
-        b.start_all()
-
+        c1 = c2 = None
         try:
+            m = b.add_master("M0", use_loopback=True)
+            m.register_satellite(
+                "mpy-1", password="vellum-otter-quartz-brim-40",
+                allowed_types=["recognizer_loop:utterance"],
+            )
+            m.register_satellite(
+                "mpy-2", password="pearl-anvil-cedar-lynx-hush-82",
+                allowed_types=["recognizer_loop:utterance"],
+            )
+            b.start_all()
+
             port = _extract_port(m.network_protocol.url)
 
             c1 = HiveMindClient(
@@ -224,4 +261,5 @@ class TestMicroPythonE2E:
             ]
             assert len(bus_msgs) >= 2, f"Expected 2+ BUS, got {len(bus_msgs)}"
         finally:
+            await _close_clients(c1, c2)
             b.stop_all()

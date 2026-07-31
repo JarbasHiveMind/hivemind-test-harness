@@ -38,8 +38,9 @@ jobs:
 
     # In-process protocol/topology layer. The OVOS skill-execution, JS,
     # MicroPython/embedded, and matplotlib-plot tests have their own jobs with
-    # the extra runtimes (or the private MicroPython-client repo) they need, so
-    # exclude them here.
+    # the extra runtimes they need, so exclude them here. The embedded modules
+    # skip themselves without the MicroPython client checkout, so they also run
+    # in the required embedded-tests job below.
     - name: Run tests
       run: |
         .venv/bin/python -m pytest tests/ -v --tb=short -m "not slow" \
@@ -85,7 +86,12 @@ jobs:
       run: |
         uv venv
         uv pip install --prerelease=allow -e .[ovos]
-        uv pip install pytest-asyncio pytest-timeout
+        # websocket-client: test_protocol_v3_noise reads the hub's advertised
+        # handshake params over a raw sync websocket. It ships in the dev
+        # extra, which this job does not install.
+        # matplotlib/networkx: test_topology_plots renders the topology PNGs.
+        uv pip install pytest-asyncio pytest-timeout websocket-client
+        uv pip install -e .[plot]
 
     - name: Run OVOS skill-execution E2E tests
       env:
@@ -99,25 +105,60 @@ jobs:
         # ovoscope 0.19.0a1 ships a pytest11 plugin incompatible with pytest 9
         # (OpenVoiceOS/ovoscope#87) — disable it. MiniCroft boot + serial skill
         # handlers are slow, so widen the per-test timeout.
+        # Glob the whole test_e2e_* suite instead of naming files: a named
+        # list silently drops every module added later, which is how 13
+        # modules ended up running in no job at all.
+        #
+        # Deny-list (--ignore=...): currently EMPTY. Every e2e module that
+        # needs a skill this job does not install guards itself with
+        # skill_missing()/skipif and skips cleanly. Add an --ignore line here
+        # only for a module that cannot run at all, and say why.
         .venv/bin/python -m pytest \
+          tests/test_e2e_*.py \
           tests/test_protocol_v3_noise.py \
           tests/test_helloworld_hivemind.py \
           tests/test_ovoscope_integration.py \
-          tests/test_e2e_session.py \
-          tests/test_e2e_ocp.py \
-          tests/test_e2e_relay_skills.py \
-          tests/test_e2e_skills.py \
-          tests/test_e2e_converse.py \
-          tests/test_e2e_get_response.py \
-          tests/test_e2e_stop.py \
           tests/test_solver_harness.py \
+          tests/test_topology_plots.py \
           -p no:ovoscope --timeout=300 -v --tb=short
 
-  # MicroPython + embedded interop. The pure-Python-compatible `hivemind`
-  # package is imported from the MicroPython client repo, which is PRIVATE — CI's
-  # default GITHUB_TOKEN can't check it out. This job is best-effort
-  # (continue-on-error) until that repo is made public or a cross-repo PAT is
-  # added as a secret; it is verified locally in the meantime.
+  # Embedded interop, REQUIRED. Every embedded module guards its imports with
+  # pytest.importorskip("hivemind.client" / "hivemind.crypto"), so without the
+  # MicroPython client checkout the whole file skips cleanly instead of erroring
+  # at collection. That makes this job safe to require: it proves the modules
+  # still import, collect and (when the checkout is present) pass.
+  embedded-tests:
+    runs-on: ubuntu-latest
+    needs: harness-tests
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+
+    - name: Install dependencies
+      run: |
+        uv venv
+        uv pip install --prerelease=allow -e .[dev]
+        uv pip install pytest-asyncio
+
+    - name: Run embedded interop tests
+      run: |
+        .venv/bin/python -m pytest tests/test_embedded_interop.py \
+          tests/test_embedded_comprehensive.py -v --tb=short
+
+  # The MicroPython client repo is PRIVATE, so CI's default GITHUB_TOKEN cannot
+  # check it out and these two modules cannot actually exercise the client.
+  # Best-effort until the repo is public or a cross-repo PAT is added; the
+  # required embedded-tests job above covers the rest.
   micropython-e2e:
     runs-on: ubuntu-latest
     needs: harness-tests
@@ -149,13 +190,12 @@ jobs:
         uv pip install --prerelease=allow -e .[dev]
         uv pip install pytest-asyncio
 
-    - name: Run MicroPython + embedded E2E tests
+    - name: Run MicroPython client E2E tests
       env:
         HIVEMIND_MICROPYTHON_CLIENT: ${{ github.workspace }}/hivemind-micropython-client
       run: |
-        .venv/bin/python -m pytest tests/test_micropython_e2e.py tests/test_embedded_clients.py \
-          tests/test_embedded_comprehensive.py tests/test_embedded_interop.py \
-          -v --tb=short
+        .venv/bin/python -m pytest tests/test_micropython_e2e.py \
+          tests/test_embedded_clients.py -v --tb=short
 
   js-e2e:
     runs-on: ubuntu-latest
