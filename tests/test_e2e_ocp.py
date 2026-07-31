@@ -15,12 +15,14 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 from ovos_workshop.intents import IntentBuilder
 from ovos_workshop.skills import OVOSSkill
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
     skill_missing, make_utterance, wait_for_satellite_message,
 )
 
@@ -56,8 +58,8 @@ class OCPTestSkill(OVOSSkill):
     """
 
     def initialize(self):
-        self.register_vocabulary("TestPlayKeyword", "test play")
-        self.register_vocabulary("TestMediaStatusKeyword", "test media status")
+        self.register_vocabulary("test play", "TestPlayKeyword")
+        self.register_vocabulary("test media status", "TestMediaStatusKeyword")
         self.register_intent(
             IntentBuilder("TestPlayIntent").require("TestPlayKeyword"),
             self.handle_play,
@@ -106,7 +108,7 @@ class OCPTestSkill(OVOSSkill):
 @pytest.fixture(scope="module")
 def ocp_topology():
     """MiniCroft with injected OCP test skill."""
-    agent = OvoscopeAgentProtocol(
+    agent = make_ovoscope_agent(
         skill_ids=[],
         extra_skills={OCP_SKILL_ID: OCPTestSkill}
     )
@@ -154,7 +156,7 @@ class TestOCPSearchResults:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("test play", CONVERSE_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
@@ -174,7 +176,7 @@ class TestOCPSearchResults:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("test play", CONVERSE_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=60)
 
@@ -190,11 +192,11 @@ class TestOCPSearchResults:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("test play", CONVERSE_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=60)
 
-        msg = wait_for_satellite_message(s0, "speak", timeout=10)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "speak not forwarded to satellite"
 
 
@@ -208,7 +210,7 @@ class TestOCPTrackInfo:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("test media status", CONVERSE_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
@@ -227,7 +229,7 @@ class TestOCPTrackInfo:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("test media status", CONVERSE_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=60)
 
