@@ -3,25 +3,23 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: New file — generate topolo
 
 TS-PLOT-01..07 — Topology visualization tests.
 
-These tests generate PNG plots that are checked in to
-``hivemind-core/docs/img/`` so the Markdown documentation can reference them.
+These tests prove the plotting utilities render every topology in the
+catalogue. Every PNG goes to pytest's ``tmp_path``: a test must never write
+into a sibling checkout (the old target was ``../hivemind-core/docs/img/``,
+which does not exist on CI and is not this repo's to modify).
 
-Run this file explicitly to regenerate the images::
-
-    pytest hivemind-test-harness/tests/test_topology_plots.py -v
+To keep a rendered image, copy it out of the reported ``tmp_path`` after a run
+with ``--basetemp``.
 
 Each test:
   1. Builds the topology / runs a PING flood.
   2. Calls the plotting utilities.
   3. Asserts the file was written and is non-empty.
-
-The plots are deterministic — re-running overwrites the same files.
 """
 
 import os
 import time
 import uuid
-from pathlib import Path
 
 import pytest
 
@@ -33,37 +31,62 @@ from hivescope.topology_plot import (
     plot_topology_and_discovery,
 )
 
-# Absolute path to hivemind-core/docs/img/ relative to this file.
-_HERE = Path(__file__).parent
-_WORKSPACE = _HERE.parent.parent          # HiveMind Workspace/
-_IMG_DIR = _WORKSPACE / "hivemind-core" / "docs" / "img"
+# Upstream bug, surfaced the moment the discovery plots stopped drawing an
+# empty hive: hivescope.topology_plot.plot_hive_mapper reads ``info.rtt_ms``,
+# but hivemind_bus_client.hive_map.NodeInfo has no such field (peer, site_id,
+# timestamp, received_at, public_key, lang, trusted). Every discovery plot of a
+# NON-empty mapper therefore raises AttributeError. Same missing field as the
+# xfail in tests/test_ping_pong.py; tracked in hivemind-test-harness#6.
+_MAPPER_RTT_BUG = pytest.mark.xfail(
+    reason="hivescope.topology_plot.plot_hive_mapper reads NodeInfo.rtt_ms, "
+           "which hivemind_bus_client.hive_map.NodeInfo does not define — "
+           "any non-empty discovery plot raises AttributeError "
+           "(hivemind-test-harness#6)",
+    strict=True,
+    raises=AttributeError,
+)
 
-
-def _img(name: str) -> str:
-    return str(_IMG_DIR / name)
+@pytest.fixture
+def img_dir(tmp_path):
+    """Per-test output directory for the rendered PNGs."""
+    out = tmp_path / "img"
+    out.mkdir()
+    return out
 
 
 def _make_ping(peer: str) -> HiveMessage:
+    # The discovery protocol keys a flood on ``flood_id``. The old ``ping_id``
+    # key meant HiveMapper never correlated the responses, so every discovery
+    # plot drew an empty hive.
     return HiveMessage(HiveMessageType.PROPAGATE, payload=HiveMessage(
         HiveMessageType.PING,
-        payload={"ping_id": str(uuid.uuid4()), "timestamp": time.time(),
+        payload={"flood_id": str(uuid.uuid4()), "timestamp": time.time(),
                  "peer": peer, "site_id": "hub"},
     ))
 
 
-def _do_ping_and_plot(master_node, topology_builder, prefix: str,
+def _do_ping_and_plot(master_node, topology_builder, img_dir, prefix: str,
                       layout_static: str = "spring",
                       layout_dynamic: str = "kamada_kawai"):
     """Run a PING flood, then plot both static wiring and live discovery."""
     ping_msg = _make_ping(master_node.hm_protocol.peer)
-    ping_id = ping_msg.payload.payload["ping_id"]
-    master_node.hm_protocol.hive_mapper.start_ping(ping_id)
+    flood_id = ping_msg.payload.payload["flood_id"]
+    mapper = master_node.hm_protocol.hive_mapper
+    mapper.start_ping(flood_id)
+    # The master already announced by sending; don't let it re-announce when
+    # the responsive PINGs come back with the same flood_id.
+    master_node.hm_protocol._seen_flood_ids.add(flood_id)
     master_node.send_to_all(ping_msg)
+
+    assert mapper.nodes, (
+        f"PING flood from {master_node.name} discovered no nodes — the "
+        "discovery plot would be empty and prove nothing"
+    )
 
     p1, p2 = plot_topology_and_discovery(
         topology_builder,
-        master_node.hm_protocol.hive_mapper,
-        dir_path=str(_IMG_DIR),
+        mapper,
+        dir_path=str(img_dir),
         prefix=prefix,
         root_peer=master_node.hm_protocol.peer,
         layout_static=layout_static,
@@ -85,14 +108,14 @@ def _assert_png(path: str):
 class TestPlotMinimalTopology:
     """TS-PLOT-01 — 1 master, 1 satellite."""
 
-    def test_static_wiring_written(self):
+    def test_static_wiring_written(self, img_dir):
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"))
         b.start_all()
         try:
             path = plot_topology_builder(
-                b, _img("minimal_static.png"),
+                b, str(img_dir / "minimal_static.png"),
                 title="Minimal topology — M0 → S0",
                 layout="spring",
             )
@@ -100,14 +123,15 @@ class TestPlotMinimalTopology:
         finally:
             b.stop_all()
 
-    def test_discovery_plot_written(self):
+    @_MAPPER_RTT_BUG
+    def test_discovery_plot_written(self, img_dir):
         b = TopologyBuilder()
         b.add_master("M0")
         b.add_satellite("S0", upstream=b.get_master("M0"))
         b.start_all()
         try:
             p1, p2 = _do_ping_and_plot(
-                b.get_master("M0"), b,
+                b.get_master("M0"), b, img_dir,
                 prefix="minimal",
             )
             _assert_png(p1)
@@ -123,7 +147,8 @@ class TestPlotMinimalTopology:
 class TestPlotStarTopology:
     """TS-PLOT-02 — 1 master, 3 satellites."""
 
-    def test_static_and_discovery_written(self):
+    @_MAPPER_RTT_BUG
+    def test_static_and_discovery_written(self, img_dir):
         b = TopologyBuilder()
         b.add_master("M0")
         for i in range(3):
@@ -131,7 +156,7 @@ class TestPlotStarTopology:
         b.start_all()
         try:
             p1, p2 = _do_ping_and_plot(
-                b.get_master("M0"), b,
+                b.get_master("M0"), b, img_dir,
                 prefix="star",
                 layout_static="spring",
             )
@@ -148,15 +173,15 @@ class TestPlotStarTopology:
 class TestPlotChainTopology:
     """TS-PLOT-03 — M0 → relay R1 → S0."""
 
-    def test_static_written(self):
+    def test_static_written(self, img_dir):
         b = TopologyBuilder()
         b.add_master("M0")
-        _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
         b.add_satellite("S0", upstream=r1_master)
         b.start_all()
         try:
             path = plot_topology_builder(
-                b, _img("chain_static.png"),
+                b, str(img_dir / "chain_static.png"),
                 title="Chain topology — M0 → R1 → S0",
                 layout="spring",
             )
@@ -164,15 +189,16 @@ class TestPlotChainTopology:
         finally:
             b.stop_all()
 
-    def test_m0_discovery_written(self):
+    @_MAPPER_RTT_BUG
+    def test_m0_discovery_written(self, img_dir):
         b = TopologyBuilder()
         b.add_master("M0")
-        _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
         b.add_satellite("S0", upstream=r1_master)
         b.start_all()
         try:
             p1, p2 = _do_ping_and_plot(
-                b.get_master("M0"), b,
+                b.get_master("M0"), b, img_dir,
                 prefix="chain_m0",
             )
             _assert_png(p1)
@@ -188,16 +214,16 @@ class TestPlotChainTopology:
 class TestPlotDeepChainTopology:
     """TS-PLOT-04 — M0 → R1 → R2 → S0 (depth 3)."""
 
-    def test_static_written(self):
+    def test_static_written(self, img_dir):
         b = TopologyBuilder()
         b.add_master("M0")
-        _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-        _, r2_master = b.add_relay("R2", upstream=r1_master)
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        r2_master = b.add_relay("R2", upstream=r1_master).listener
         b.add_satellite("S0", upstream=r2_master)
         b.start_all()
         try:
             path = plot_topology_builder(
-                b, _img("deep_chain_static.png"),
+                b, str(img_dir / "deep_chain_static.png"),
                 title="Deep chain — M0 → R1 → R2 → S0",
                 layout="spring",
             )
@@ -214,20 +240,21 @@ class TestPlotHugeHive:
     """TS-PLOT-05 — 1 master, 15 satellites."""
 
     @pytest.mark.slow
-    def test_static_written(self, huge_hive_topology):
+    def test_static_written(self, huge_hive_topology, img_dir):
         path = plot_topology_builder(
             huge_hive_topology,
-            _img("huge_hive_static.png"),
+            str(img_dir / "huge_hive_static.png"),
             title="Huge hive — M0 + 15 satellites",
             layout="spring",
         )
         _assert_png(path)
 
     @pytest.mark.slow
-    def test_discovery_written(self, huge_hive_topology):
+    @_MAPPER_RTT_BUG
+    def test_discovery_written(self, huge_hive_topology, img_dir):
         b = huge_hive_topology
         m0 = b.get_master("M0")
-        p1, p2 = _do_ping_and_plot(m0, b, prefix="huge_hive",
+        p1, p2 = _do_ping_and_plot(m0, b, img_dir, prefix="huge_hive",
                                    layout_dynamic="spring")
         _assert_png(p1)
         _assert_png(p2)
@@ -241,31 +268,33 @@ class TestPlotChaoticHive:
     """TS-PLOT-06 — multi-level irregular tree."""
 
     @pytest.mark.slow
-    def test_static_written(self, chaotic_hive_topology):
+    def test_static_written(self, chaotic_hive_topology, img_dir):
         path = plot_topology_builder(
             chaotic_hive_topology,
-            _img("chaotic_hive_static.png"),
+            str(img_dir / "chaotic_hive_static.png"),
             title="Chaotic hive — M0 + nested relays",
             layout="spring",
         )
         _assert_png(path)
 
     @pytest.mark.slow
-    def test_m0_discovery_written(self, chaotic_hive_topology):
+    @_MAPPER_RTT_BUG
+    def test_m0_discovery_written(self, chaotic_hive_topology, img_dir):
         b = chaotic_hive_topology
         m0 = b.get_master("M0")
-        p1, p2 = _do_ping_and_plot(m0, b, prefix="chaotic_hive_m0")
+        p1, p2 = _do_ping_and_plot(m0, b, img_dir, prefix="chaotic_hive_m0")
         _assert_png(p1)
         _assert_png(p2)
 
     @pytest.mark.slow
-    def test_each_master_discovery_written(self, chaotic_hive_topology):
+    @_MAPPER_RTT_BUG
+    def test_each_master_discovery_written(self, chaotic_hive_topology, img_dir):
         """Generate one discovery plot per master node."""
         b = chaotic_hive_topology
         for master in b.masters:
             safe_name = master.name.replace("_", "")
             p1, p2 = _do_ping_and_plot(
-                master, b,
+                master, b, img_dir,
                 prefix=f"chaotic_{safe_name}",
             )
             _assert_png(p2)
@@ -278,9 +307,9 @@ class TestPlotChaoticHive:
 class TestPlotEmptyMapper:
     """TS-PLOT-07 — plot_hive_mapper with empty mapper writes a placeholder PNG."""
 
-    def test_empty_mapper_placeholder(self):
-        from hivemind_core.hive_map import HiveMapper
+    def test_empty_mapper_placeholder(self, img_dir):
+        from hivemind_bus_client.hive_map import HiveMapper
         mapper = HiveMapper()
-        path = _img("empty_mapper.png")
+        path = str(img_dir / "empty_mapper.png")
         result = plot_hive_mapper(mapper, path, title="Empty mapper test")
         _assert_png(result)

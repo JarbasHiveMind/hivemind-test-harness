@@ -21,6 +21,11 @@ from tests.conftest import (
     skill_missing, make_utterance,
 )
 
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
+
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
     "ovos-padatious-pipeline-plugin-high",
@@ -41,15 +46,17 @@ def relay_acl_agent():
     agent = OvoscopeAgentProtocol(
         skill_ids=[SKILL_HELLO, SKILL_DATETIME, SKILL_FALLBACK]
     )
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("Skills not registered within 120s")
-    yield agent
-    agent.shutdown()
+    try:
+        _deadline = time.monotonic() + 120
+        while time.monotonic() < _deadline:
+            if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
+                break
+            time.sleep(0.5)
+        else:
+            pytest.skip("Skills not registered within 120s")
+        yield agent
+    finally:
+        agent.shutdown()
 
 
 @pytest.fixture(scope="module")
@@ -57,27 +64,31 @@ def relay_skill_blacklist_topology(relay_acl_agent):
     """Chain: M0 ← R1(hello-world blacklisted as client of M0) ← S0.
     S0 has no extra restrictions at the R1 level."""
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=relay_acl_agent)
-    # R1 connects to M0 with hello-world blacklisted
-    _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"),
-                                skill_blacklist=[SKILL_HELLO])
-    b.add_satellite("S0", upstream=r1_master)
-    b.start_all()
-    yield b, relay_acl_agent
-    b.stop_all()
+    try:
+        b.add_master("M0", agent_protocol=relay_acl_agent)
+        # R1 connects to M0 with hello-world blacklisted
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0"),
+                                    skill_blacklist=[SKILL_HELLO]).listener
+        b.add_satellite("S0", upstream=r1_master)
+        b.start_all()
+        yield b, relay_acl_agent
+    finally:
+        b.stop_all()
 
 
 @pytest.fixture(scope="module")
 def relay_leaf_blacklist_topology(relay_acl_agent):
     """Chain: M0 ← R1(no restrictions) ← S0(date-time blacklisted at R1 level)."""
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=relay_acl_agent)
-    _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=r1_master,
-                     skill_blacklist=[SKILL_DATETIME])
-    b.start_all()
-    yield b, relay_acl_agent
-    b.stop_all()
+    try:
+        b.add_master("M0", agent_protocol=relay_acl_agent)
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        b.add_satellite("S0", upstream=r1_master,
+                         skill_blacklist=[SKILL_DATETIME])
+        b.start_all()
+        yield b, relay_acl_agent
+    finally:
+        b.stop_all()
 
 
 @pytest.mark.skipif(skill_missing(SKILL_HELLO, SKILL_DATETIME, SKILL_FALLBACK),
