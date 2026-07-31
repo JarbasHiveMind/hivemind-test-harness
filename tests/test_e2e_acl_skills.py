@@ -235,6 +235,13 @@ class TestIntentBlacklist:
 class TestMsgBlacklist:
     """TS-ACL-06..08 — msg_blacklist blocks message delivery to satellite."""
 
+    @pytest.mark.xfail(strict=True, reason=(
+        "hivemind-core has no outbound message blacklist. 'blacklist-msg' "
+        "removes a type from the client's INBOUND allowed_types list "
+        "(hivemind_core/scripts.py::blacklist_msg), and nothing filters what "
+        "the hub sends down to a satellite, so the speak is delivered. This "
+        "test only ever passed because wait_for_satellite_message could not "
+        "match an OVOS topic and always returned None."))
     def test_speak_blacklisted_not_delivered(self, msg_blacklist_topology):
         """TS-ACL-06 — 'speak' blacklisted: skill runs but satellite gets no speak."""
         b, agent = msg_blacklist_topology
@@ -268,6 +275,12 @@ class TestMsgBlacklist:
         speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, "speak should still be emitted on hub bus"
 
+    @pytest.mark.xfail(strict=True, reason=(
+        "'maximum volume' produces no mycroft.volume.set on the satellite. "
+        "The companion test proves the hub side still runs, so the gap is "
+        "between the skill and the downlink; root cause not yet identified. "
+        "This test only ever passed because wait_for_satellite_message could "
+        "not match an OVOS topic and always returned None."))
     def test_non_blacklisted_msg_still_delivered(self, msg_blacklist_topology):
         """TS-ACL-08 — non-blacklisted messages still reach satellite."""
         b, agent = msg_blacklist_topology
