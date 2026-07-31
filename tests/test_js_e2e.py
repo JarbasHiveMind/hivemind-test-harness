@@ -20,12 +20,27 @@ import pytest
 from hivescope.topology import TopologyBuilder
 from hivemind_bus_client.message import HiveMessageType
 
-# Node.js is an external runtime, not something the driver can install. Decide
-# once, at collection time — a missing `node` used to surface as a driver
-# failure whose stderr the tests then string-matched.
+# Node.js and its `ws` package are external prerequisites the harness cannot
+# install for itself (CI's js-e2e job runs `npm install ws`). Decide once, at
+# collection time — a missing runtime used to surface as a driver failure whose
+# stderr the tests then string-matched.
+def _node_prereq() -> str:
+    """Return the missing prerequisite, or "" when the driver can run."""
+    if shutil.which("node") is None:
+        return "Node.js (`node`) is not on PATH"
+    probe = subprocess.run(["node", "-e", "require('ws')"],
+                           cwd=str(Path(__file__).resolve().parent.parent),
+                           capture_output=True, text=True)
+    if probe.returncode != 0:
+        return "the Node `ws` package is not installed (run `npm install ws`)"
+    return ""
+
+
+_NODE_MISSING = _node_prereq()
+
 pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None,
-    reason="Node.js (`node`) is not on PATH; the JS client driver cannot run",
+    bool(_NODE_MISSING),
+    reason=f"{_NODE_MISSING}; the JS client driver cannot run",
 )
 
 # The hub records the utterance from its own thread after the node process
