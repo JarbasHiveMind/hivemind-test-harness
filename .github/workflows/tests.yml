@@ -68,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     needs: harness-tests
     # Each module boots its own MiniCroft (up to a 180s READY budget) and runs
@@ -134,10 +134,17 @@ jobs:
         # converse module move to the lighter shard 2 (which ran in ~15min).
         # (test_e2e_get_response.py is not xfailed and passes; it is just a
         # heavy module, unrelated to this rebalance.)
+        # Three exhaustive, non-overlapping shards — each boots a MiniCroft
+        # per module, so two shards exceeded the 90-min cap. e2e modules split
+        # by first letter (a-g / h-r / s-z), the five non-e2e modules spread
+        # across them. Every module lands in exactly one shard (glob, never a
+        # named list, so a new test_e2e_* file cannot silently run in no job).
         if [ "${{ matrix.shard }}" = "1" ]; then
-          FILES="tests/test_e2e_[b-l]*.py tests/test_helloworld_hivemind.py tests/test_ovoscope_integration.py"
+          FILES="tests/test_e2e_[a-g]*.py tests/test_helloworld_hivemind.py tests/test_ovoscope_integration.py"
+        elif [ "${{ matrix.shard }}" = "2" ]; then
+          FILES="tests/test_e2e_[h-r]*.py tests/test_protocol_v3_noise.py tests/test_solver_harness.py"
         else
-          FILES="tests/test_e2e_a*.py tests/test_e2e_[m-z]*.py tests/test_protocol_v3_noise.py tests/test_solver_harness.py tests/test_topology_plots.py"
+          FILES="tests/test_e2e_[s-z]*.py tests/test_topology_plots.py"
         fi
         .venv/bin/python -m pytest $FILES \
           -p no:ovoscope --timeout=300 -v --tb=short
