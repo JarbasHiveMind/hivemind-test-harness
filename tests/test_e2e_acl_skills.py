@@ -230,18 +230,39 @@ class TestIntentBlacklist:
 # TS-ACL-06..08  Message Blacklist
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(skill_missing(SKILL_HELLO),
-                     reason="ovos-skill-hello-world not installed")
+@pytest.mark.skipif(skill_missing(SKILL_HELLO, SKILL_VOLUME),
+                     reason="ovos-skill-hello-world / ovos-skill-volume not installed")
 class TestMsgBlacklist:
-    """TS-ACL-06..08 — msg_blacklist blocks message delivery to satellite."""
+    """TS-ACL-06..08 — msg_blacklist blocks message delivery to satellite.
+
+    The two tests below fail for *different* reasons — do not merge them:
+
+    * TS-ACL-06 is an upstream gap. ``msg_blacklist`` no longer exists as a
+      data-model field: ``hivescope/database.py`` accepts the kwarg for API
+      compatibility and drops it, because hivemind-core is whitelist-only
+      (``allowed_types``, deny-by-default). Nothing filters the downlink.
+    * TS-ACL-08 is NOT a downlink gap. The downlink works; the test used to
+      run without the skill that produces the message it waits for.
+
+    The downlink rule itself is one line: the hub sends a bus message to a
+    satellite if, and only if, ``message.context["destination"]`` names that
+    peer (``hivescope/plugins/agent.py::handle_internal_mycroft``, a verbatim
+    port of ``hivemind_ovos_agent_plugin``). The rule is type-blind — a
+    destination-addressed ``speak`` and a destination-addressed
+    ``mycroft.volume.set`` are both delivered, and neither is filtered.
+    """
 
     @pytest.mark.xfail(strict=True, reason=(
-        "hivemind-core has no outbound message blacklist. 'blacklist-msg' "
-        "removes a type from the client's INBOUND allowed_types list "
-        "(hivemind_core/scripts.py::blacklist_msg), and nothing filters what "
-        "the hub sends down to a satellite, so the speak is delivered. This "
-        "test only ever passed because wait_for_satellite_message could not "
-        "match an OVOS topic and always returned None."))
+        "Upstream (hivemind-core / hivemind-ovos-agent-plugin): there is no "
+        "outbound message blacklist, and msg_blacklist is not even stored — "
+        "hivescope/database.py accepts the kwarg and drops it because "
+        "hivemind-core is whitelist-only (allowed_types, deny-by-default). "
+        "The downlink delivers any bus message whose context['destination'] "
+        "names the peer, with no type filter "
+        "(hivescope/plugins/agent.py::handle_internal_mycroft), so the speak "
+        "arrives. Blocking it needs an outbound ACL upstream; nothing in this "
+        "harness can fix it. See the class docstring for the shared downlink "
+        "rule and why TS-ACL-08 is a separate, harness-side problem."))
     def test_speak_blacklisted_not_delivered(self, msg_blacklist_topology):
         """TS-ACL-06 — 'speak' blacklisted: skill runs but satellite gets no speak."""
         b, agent = msg_blacklist_topology
@@ -275,14 +296,17 @@ class TestMsgBlacklist:
         speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, "speak should still be emitted on hub bus"
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "'maximum volume' produces no mycroft.volume.set on the satellite. "
-        "The companion test proves the hub side still runs, so the gap is "
-        "between the skill and the downlink; root cause not yet identified. "
-        "This test only ever passed because wait_for_satellite_message could "
-        "not match an OVOS topic and always returned None."))
     def test_non_blacklisted_msg_still_delivered(self, msg_blacklist_topology):
-        """TS-ACL-08 — non-blacklisted messages still reach satellite."""
+        """TS-ACL-08 — non-blacklisted messages still reach satellite.
+
+        This test was strict-xfailed as a "downlink gap". It is not one. The
+        class only skipped on ovos-skill-hello-world, but the utterance needs
+        ovos-skill-volume, which the ``ovos`` extra does not install. Without
+        that skill nothing ever emits mycroft.volume.set, so the wait below
+        timed out on the hub side, not the downlink. The class skipif now
+        covers ovos-skill-volume, and the hub-side assertion below tells the
+        two failure modes apart.
+        """
         b, agent = msg_blacklist_topology
         agent.clear()
         s0 = b.get_satellite("S0")
@@ -290,7 +314,14 @@ class TestMsgBlacklist:
         # Volume messages are not blacklisted
         cap = open_capture(agent)
         s0.send(make_utterance("maximum volume", DEFAULT_PIPELINE, s0.shim.session_id))
-        cap.wait(timeout=15)
+        messages = cap.wait(timeout=15)
+
+        # Hub side first: if the skill never ran, the downlink is not on trial.
+        assert any(m.msg_type == "mycroft.volume.set" for m in messages), (
+            f"Volume skill did not emit mycroft.volume.set on the hub bus, so "
+            f"this test cannot say anything about the downlink.\n"
+            f"Captured: {[m.msg_type for m in messages]}"
+        )
 
         msg = wait_for_satellite_message(s0, "mycroft.volume.set", timeout=10)
         assert msg is not None, (
