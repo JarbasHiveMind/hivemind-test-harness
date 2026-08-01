@@ -23,7 +23,7 @@ Test IDs
 --------
 TS-HW-01   adapt pipeline: "hello world" → HelloWorldIntent → speak
 TS-HW-02   padatious pipeline: "hello world" → ovos.intent.unmatched
-TS-HW-03   padatious pipeline: "good morning" → Greetings.intent → speak
+TS-HW-03   padatious pipeline: "good morning" → Greetings intent → speak
 TS-HW-04   adapt pipeline: "good morning" → ovos.intent.unmatched
 TS-HW-05   speak from hello-world routes back to satellite via HiveMind
 """
@@ -84,11 +84,17 @@ def _types(messages) -> list:
 
 
 def _assert_types_in_order(messages, *expected_types):
-    """Assert every expected_type appears in messages in order."""
+    """Assert every expected_type appears in messages in order.
+
+    An expected entry may be a tuple of acceptable spellings (e.g. the
+    canonical and legacy form of an intent topic) — any one of them
+    satisfies that position.
+    """
     types = _types(messages)
     pos = 0
     for t in expected_types:
-        found = next((i for i in range(pos, len(types)) if types[i] == t), None)
+        accept = t if isinstance(t, tuple) else (t,)
+        found = next((i for i in range(pos, len(types)) if types[i] in accept), None)
         assert found is not None, (
             f"Expected message type '{t}' not found after position {pos}.\n"
             f"Captured sequence: {types}"
@@ -296,12 +302,12 @@ class TestAdaptUtterancePadatiousPipelineViaHiveMind:
 
 
 # ---------------------------------------------------------------------------
-# TS-HW-03  padatious pipeline: "good morning" → Greetings.intent → speak
+# TS-HW-03  padatious pipeline: "good morning" → Greetings intent → speak
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(_skill_missing(), reason=f"{SKILL_ID} not installed")
 class TestPadatiousIntentViaHiveMind:
-    """TS-HW-03 — 'good morning' via padatious → Greetings.intent → speak."""
+    """TS-HW-03 — 'good morning' via padatious → Greetings intent → speak."""
 
     PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 
@@ -315,11 +321,11 @@ class TestPadatiousIntentViaHiveMind:
         messages = cap.wait(timeout=60)
 
         intent_msg = next(
-            (m for m in messages if m.msg_type == f"{SKILL_ID}:Greetings.intent"),
+            (m for m in messages if m.msg_type in (f"{SKILL_ID}:Greetings", f"{SKILL_ID}:Greetings.intent")),
             None,
         )
         assert intent_msg is not None, (
-            f"Intent '{SKILL_ID}:Greetings.intent' not found.\n"
+            f"Intent '{SKILL_ID}:Greetings' not found (canonical or legacy).\n"
             f"Captured: {_types(messages)}"
         )
 
@@ -354,7 +360,10 @@ class TestPadatiousIntentViaHiveMind:
         _assert_types_in_order(
             messages,
             "recognizer_loop:utterance",
-            f"{SKILL_ID}:Greetings.intent",
+            # workshop >=9.3.2a1 registers the canonical (suffix-free) name;
+            # the sequence assertion accepts either spelling so this file
+            # tracks behavior, not the vintage of the resolved stack.
+            (f"{SKILL_ID}:Greetings", f"{SKILL_ID}:Greetings.intent"),
             "mycroft.skill.handler.start",
             SpecMessage.SPEAK,
             "mycroft.skill.handler.complete",
