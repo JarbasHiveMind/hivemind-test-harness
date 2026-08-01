@@ -143,9 +143,9 @@ jobs:
         # cannot silently run in no job (the original bug) despite the explicit
         # lists.
         case "${{ matrix.shard }}" in
-          1) FILES="tests/test_e2e_acl_skills.py tests/test_e2e_admin_broadcast.py tests/test_e2e_binary_skill.py tests/test_e2e_lang.py tests/test_helloworld_hivemind.py tests/test_ovoscope_integration.py" ;;
-          2) FILES="tests/test_e2e_converse.py tests/test_e2e_converse_advanced.py tests/test_e2e_get_response.py tests/test_e2e_ask_yesno_selection.py tests/test_protocol_v3_noise.py" ;;
-          3) FILES="tests/test_e2e_misc_skills.py tests/test_e2e_multi_satellite.py tests/test_e2e_ocp.py tests/test_e2e_relay_acl.py tests/test_e2e_relay_skills.py tests/test_solver_harness.py" ;;
+          1) FILES="tests/test_e2e_acl_skills.py tests/test_e2e_admin_broadcast.py tests/test_e2e_binary_skill.py tests/test_e2e_lang.py tests/test_e2e_converse.py tests/test_helloworld_hivemind.py tests/test_ovoscope_integration.py" ;;
+          2) FILES="tests/test_e2e_converse_advanced.py tests/test_e2e_get_response.py tests/test_protocol_v3_noise.py" ;;
+          3) FILES="tests/test_e2e_misc_skills.py tests/test_e2e_multi_satellite.py tests/test_e2e_ocp.py tests/test_e2e_relay_acl.py tests/test_e2e_relay_skills.py tests/test_e2e_ask_yesno_selection.py tests/test_solver_harness.py" ;;
           4) FILES="tests/test_e2e_scheduler.py tests/test_e2e_session.py tests/test_e2e_shared_bus.py tests/test_e2e_skills.py tests/test_e2e_stop.py tests/test_e2e_volume_phal.py tests/test_topology_plots.py" ;;
         esac
         .venv/bin/python -m pytest $FILES \
