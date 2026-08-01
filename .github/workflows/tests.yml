@@ -41,6 +41,10 @@ jobs:
     # the extra runtimes they need, so exclude them here. The embedded modules
     # skip themselves without the MicroPython client checkout, so they also run
     # in the required embedded-tests job below.
+    # test_protocol_v3_noise.py self-skips here too (no websocket-client extra),
+    # but leaving it in still burns collection time and blurs the one-file/
+    # one-job partition this list otherwise keeps. It runs for real in the
+    # ovos-e2e job's shard 2.
     - name: Run tests
       run: |
         .venv/bin/python -m pytest tests/ -v --tb=short -m "not slow" \
@@ -51,7 +55,8 @@ jobs:
           --ignore=tests/test_ovoscope_integration.py \
           --ignore=tests/test_solver_harness.py \
           --ignore=tests/test_js_e2e.py \
-          --ignore=tests/test_topology_plots.py
+          --ignore=tests/test_topology_plots.py \
+          --ignore=tests/test_protocol_v3_noise.py
 
   ovos-e2e:
     # Live OVOS skill-execution layer: routes real utterances through HiveMind
@@ -124,9 +129,11 @@ jobs:
         # needs a skill this job does not install guards itself with
         # skill_missing()/skipif and skips cleanly. Add an --ignore line here
         # only for a module that cannot run at all, and say why.
-        # Rebalanced after shard 1 blew the 90-minute cap: the get_response
+        # Rebalanced after shard 1 blew the 90-minute cap: the ask_yesno_selection
         # module (xfailed, but still burning its per-test timeouts) and the
         # converse module move to the lighter shard 2 (which ran in ~15min).
+        # (test_e2e_get_response.py is not xfailed and passes; it is just a
+        # heavy module, unrelated to this rebalance.)
         if [ "${{ matrix.shard }}" = "1" ]; then
           FILES="tests/test_e2e_[b-l]*.py tests/test_helloworld_hivemind.py tests/test_ovoscope_integration.py"
         else
