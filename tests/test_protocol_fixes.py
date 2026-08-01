@@ -30,38 +30,63 @@ class TestWrongPasswordDisconnects:
     disconnected during the handshake phase and never enter self.clients."""
 
     def test_wrong_password_satellite_is_rejected(self):
-        """Satellite with wrong password: handshake fails, peer not in clients."""
+        """Satellite with wrong password: handshake fails, peer not in clients.
+
+        ``SatelliteNode.connect`` registers the DB row from the satellite's own
+        identity, so the two passwords always agree and a wrong password can
+        never be expressed through it. This test therefore drives the wiring by
+        hand: the master's DB row for ``wrong-sat`` carries the CORRECT
+        password, and the satellite presents a DIFFERENT one.
+        """
         b = TopologyBuilder()
-        b.add_master("M0")
-        m0 = b.get_master("M0")
+        wrong_sat = None
+        try:
+            b.add_master("M0")
+            m0 = b.get_master("M0")
 
-        # Connect a satellite with the correct password (already works — baseline)
-        b.add_satellite("S0", upstream=m0)
-        b.start_all()
+            # Baseline: a satellite with the matching password is accepted.
+            b.add_satellite("S0", upstream=m0)
+            b.start_all()
 
-        assert len(m0.hm_protocol.clients) == 1, \
-            "S0 (correct password) must be accepted"
+            s0 = b.get_satellite("S0")
+            assert len(m0.hm_protocol.clients) == 1, \
+                "S0 (correct password) must be accepted"
 
-        # Now try to connect a satellite with the wrong password.
-        # We create a node whose identity has a different password than the master expects.
-        import tempfile, os
-        from hivescope.node import SatelliteNode
-        from hivescope.utils import make_identity
+            # Register a key the master knows, with the password the master expects.
+            wrong_sat = SatelliteNode.create("wrong-sat")
+            m0.register_satellite(key=wrong_sat.identity.access_key,
+                                  password="the-correct-password")
+            # ...then have the satellite present a different one.
+            wrong_sat.identity.password = "definitely-wrong-password"
+            wrong_sat._master = m0
 
-        wrong_identity = make_identity("wrong-sat", password="definitely-wrong-password")
-        # The master's DB entry for any new connection uses the password from the DB;
-        # if no matching key is in the DB the connection is rejected at the key-check
-        # level before the handshake.  To exercise the handshake password check we
-        # need to register a key in the DB with the master's password but then have
-        # the satellite use a different one.
-        # The simplest integration check: verify S0 (correct) is still connected
-        # after a failed attempt from a wrong-password node doesn't corrupt state.
-        s0 = b.get_satellite("S0")
-        assert s0.shim.session_id in [c.sess.session_id
-                                       for c in m0.hm_protocol.clients.values()], \
-            "S0 session must remain in master clients after failed wrong-password attempt"
+            try:
+                m0.network_protocol.connect_satellite(satellite=wrong_sat)
+                if not wrong_sat.shim.handshake_event.is_set():
+                    wrong_sat.slave_protocol.start_handshake()
+            except RuntimeError:
+                # The master drops the connection mid-handshake, so the client's
+                # next write finds no connection. That IS the rejection.
+                pass
 
-        b.stop_all()
+            assert not wrong_sat.shim.handshake_event.is_set(), \
+                "Wrong-password satellite must never complete the handshake"
+
+            peers = list(m0.hm_protocol.clients.keys())
+            assert not any(p.startswith("wrong-sat::") for p in peers), \
+                f"Wrong-password satellite must not be admitted; clients={peers}"
+
+            # The rejection must not disturb the already-connected satellite.
+            assert len(m0.hm_protocol.clients) == 1, \
+                f"Only S0 must remain connected; clients={peers}"
+            assert s0.shim.session_id in [c.sess.session_id
+                                          for c in m0.hm_protocol.clients.values()], \
+                "S0 session must survive the failed wrong-password attempt"
+
+        finally:
+            if wrong_sat is not None:
+                wrong_sat.cleanup()
+            b.stop_all()
 
 
 # ---------------------------------------------------------------------------
@@ -78,12 +103,6 @@ class TestIntercomInnerDelivery:
         """RSA-encrypted INTERCOM(BUS) → master injects the BUS on agent bus."""
         pass
 
-    @pytest.mark.xfail(
-        reason="hivemind-core#117: handle_intercom_message dispatches on the outer "
-               "INTERCOM type and never deserializes the inner payload in the "
-               "unencrypted path, so the inner BUS is dropped",
-        strict=False,
-    )
     def test_unencrypted_intercom_bus_delivered(self, minimal_topology):
         """Unencrypted INTERCOM(BUS) with no target_pubkey → inner BUS injected."""
         b = minimal_topology
@@ -108,14 +127,9 @@ class TestIntercomInnerDelivery:
 class TestIllegalBroadcastDisconnects:
     """TS-FIX-03 — Non-admin satellite that sends BROADCAST must be disconnected."""
 
-    @pytest.mark.xfail(
-        reason="hivemind-core#116: illegal BROADCAST fires illegal_callback but only "
-               "returns (TODO 'kick client'), leaving the satellite connected — "
-               "unlike QUERY/CASCADE which disconnect on permission violation",
-        strict=False,
-    )
     def test_non_admin_broadcast_disconnects_satellite(self, star_topology):
         """After a non-admin BROADCAST the sending satellite is no longer in clients."""
+        # star_topology is a fixture; it owns stop_all().
         b = star_topology
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")  # non-admin
@@ -140,8 +154,6 @@ class TestIllegalBroadcastDisconnects:
         assert s0_peer not in m0.hm_protocol.clients, \
             "Non-admin satellite must be removed from clients after illegal BROADCAST"
 
-        b.stop_all()
-
 
 # ---------------------------------------------------------------------------
 # TS-FIX-04 — HIGH-3: can_propagate=False PROPAGATE disconnects satellite
@@ -150,33 +162,30 @@ class TestIllegalBroadcastDisconnects:
 class TestIllegalPropagateDisconnects:
     """TS-FIX-04 — Satellite with can_propagate=False that sends PROPAGATE is disconnected."""
 
-    @pytest.mark.xfail(
-        reason="hivemind-core#116: can_propagate=False PROPAGATE fires illegal_callback "
-               "but only returns (TODO 'kick client'), leaving the satellite connected",
-        strict=False,
-    )
     def test_cant_propagate_satellite_disconnected(self):
         b = TopologyBuilder()
-        b.add_master("M0")
-        m0 = b.get_master("M0")
-        b.add_satellite("S0", upstream=m0, can_propagate=False)
-        b.start_all()
+        try:
+            b.add_master("M0")
+            m0 = b.get_master("M0")
+            b.add_satellite("S0", upstream=m0, can_propagate=False)
+            b.start_all()
 
-        s0 = b.get_satellite("S0")
-        illegal_calls = []
-        m0.hm_protocol.illegal_callback = illegal_calls.append
+            s0 = b.get_satellite("S0")
+            illegal_calls = []
+            m0.hm_protocol.illegal_callback = illegal_calls.append
 
-        inner = HiveMessage(HiveMessageType.THIRDPRTY, payload={"data": "test"})
-        propagate = HiveMessage(HiveMessageType.PROPAGATE, payload=inner)
-        s0.send(propagate)
+            inner = HiveMessage(HiveMessageType.THIRDPRTY, payload={"data": "test"})
+            propagate = HiveMessage(HiveMessageType.PROPAGATE, payload=inner)
+            s0.send(propagate)
 
-        assert len(illegal_calls) == 1
+            assert len(illegal_calls) == 1
 
-        s0_peer = f"{s0.identity.name}::{s0.shim.session_id}"
-        assert s0_peer not in m0.hm_protocol.clients, \
-            "Satellite violating can_propagate must be disconnected"
+            s0_peer = f"{s0.identity.name}::{s0.shim.session_id}"
+            assert s0_peer not in m0.hm_protocol.clients, \
+                "Satellite violating can_propagate must be disconnected"
 
-        b.stop_all()
+        finally:
+            b.stop_all()
 
 
 # ---------------------------------------------------------------------------
@@ -186,33 +195,30 @@ class TestIllegalPropagateDisconnects:
 class TestIllegalEscalateDisconnects:
     """TS-FIX-05 — Satellite with can_escalate=False that sends ESCALATE is disconnected."""
 
-    @pytest.mark.xfail(
-        reason="hivemind-core#116: can_escalate=False ESCALATE fires illegal_callback "
-               "but only returns (TODO 'kick client'), leaving the satellite connected",
-        strict=False,
-    )
     def test_cant_escalate_satellite_disconnected(self):
         b = TopologyBuilder()
-        b.add_master("M0")
-        m0 = b.get_master("M0")
-        b.add_satellite("S0", upstream=m0, can_escalate=False)
-        b.start_all()
+        try:
+            b.add_master("M0")
+            m0 = b.get_master("M0")
+            b.add_satellite("S0", upstream=m0, can_escalate=False)
+            b.start_all()
 
-        s0 = b.get_satellite("S0")
-        illegal_calls = []
-        m0.hm_protocol.illegal_callback = illegal_calls.append
+            s0 = b.get_satellite("S0")
+            illegal_calls = []
+            m0.hm_protocol.illegal_callback = illegal_calls.append
 
-        inner = HiveMessage(HiveMessageType.THIRDPRTY, payload={"data": "escalate-test"})
-        escalate = HiveMessage(HiveMessageType.ESCALATE, payload=inner)
-        s0.send(escalate)
+            inner = HiveMessage(HiveMessageType.THIRDPRTY, payload={"data": "escalate-test"})
+            escalate = HiveMessage(HiveMessageType.ESCALATE, payload=inner)
+            s0.send(escalate)
 
-        assert len(illegal_calls) == 1
+            assert len(illegal_calls) == 1
 
-        s0_peer = f"{s0.identity.name}::{s0.shim.session_id}"
-        assert s0_peer not in m0.hm_protocol.clients, \
-            "Satellite violating can_escalate must be disconnected"
+            s0_peer = f"{s0.identity.name}::{s0.shim.session_id}"
+            assert s0_peer not in m0.hm_protocol.clients, \
+                "Satellite violating can_escalate must be disconnected"
 
-        b.stop_all()
+        finally:
+            b.stop_all()
 
 
 # ---------------------------------------------------------------------------
@@ -223,12 +229,6 @@ class TestUpdateLastSeenMissingKey:
     """TS-FIX-06 — update_last_seen must not raise when the DB no longer has the
     client's API key (e.g. key was revoked while client was connected)."""
 
-    @pytest.mark.xfail(
-        reason="hivemind-core#118: update_last_seen dereferences "
-               "get_client_by_api_key() without a None-check, raising AttributeError "
-               "when the client's key was revoked/removed from the DB",
-        strict=False,
-    )
     def test_missing_key_does_not_crash(self, minimal_topology):
         b = minimal_topology
         m0 = b.get_master("M0")
@@ -252,12 +252,6 @@ class TestFileBinaryNameSanitized:
     """TS-FIX-07 — BINARY(FILE) metadata file_name is passed through os.path.basename()
     before reaching handle_receive_file, preventing path-traversal attacks."""
 
-    @pytest.mark.xfail(
-        reason="hivemind-core#119: handle_binary_message passes client-supplied "
-               "BINARY(FILE) file_name verbatim to handle_receive_file without "
-               "os.path.basename(), allowing path traversal",
-        strict=False,
-    )
     def test_path_traversal_stripped_before_handler(self, minimal_topology):
         b = minimal_topology
         s0 = b.get_satellite("S0")

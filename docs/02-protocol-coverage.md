@@ -1,7 +1,14 @@
 # Protocol Coverage
 
-Test coverage status for all HiveMind protocol message types, binary payload types,
-and related features. **326 tests across 32 files, all passing.**
+Test coverage status for all HiveMind protocol message types, binary payload
+types, and related features.
+
+**404 tests across 46 modules** collect in a plain checkout. Four embedded
+modules (68 more tests) skip themselves unless the MicroPython client checkout
+is present — point `HIVEMIND_MICROPYTHON_CLIENT` at it, or CI's
+`micropython-e2e` job supplies it. Regenerate the counts below with::
+
+    python -m pytest tests --collect-only -q
 
 ---
 
@@ -9,20 +16,20 @@ and related features. **326 tests across 32 files, all passing.**
 
 | Type | Value | Direction | Description | Status | Test file(s) |
 |---|---|---|---|---|---|
-| HANDSHAKE | `shake` | both | PAKE key exchange | tested | `test_handshake.py`, `test_handshake_edge_cases.py` |
+| HANDSHAKE | `shake` | both | Password/RSA key exchange (v0-v2), Noise XXpsk2 (v3) | tested | `test_handshake.py`, `test_protocol_v3_noise.py` |
 | HELLO | `hello` | both | Session sync after handshake | tested | `test_handshake.py` |
-| BUS | `bus` | both | OVOS bus message injection | tested | `test_bus.py`, `test_utterance_flow.py` |
+| BUS | `bus` | both | OVOS bus message injection | tested | `test_bus.py`, `test_route_metadata.py`, the `test_e2e_*` suite |
 | SHARED_BUS | `shared_bus` | satellite→master | Passive bus monitoring | tested | `test_shared_bus.py` |
 | BROADCAST | `broadcast` | admin-satellite→master→all | Fan-out to all connected nodes | tested | `test_broadcast.py` |
 | PROPAGATE | `propagate` | satellite→master→siblings+upstream | Fan-out + escalate combined | tested | `test_propagate.py` |
 | ESCALATE | `escalate` | satellite→masters-only | Forward up authority chain | tested | `test_escalate.py` |
 | INTERCOM | `intercom` | satellite→master→target-satellite | RSA-encrypted peer-to-peer routing | tested | `test_intercom.py` |
-| PING | `ping` | both | Network topology discovery | tested | `test_ping_pong.py` (49 tests) |
+| PING | `ping` | both | Network topology discovery | tested | `test_ping_pong.py` (49 tests), `test_ping_exactly_once.py` (11 tests) |
 | QUERY | `query` | upstream+response | Like ESCALATE but stops at first responder | tested | `test_query.py` (6 tests) |
 | CASCADE | `cascade` | both+response | Like PROPAGATE but expects responses from all | tested | `test_cascade.py` (8 tests) |
 | RENDEZVOUS | `rendezvous` | reserved | Rendezvous-node peer discovery | not implemented | `test_unimplemented_types.py` |
 | THIRDPRTY | `3rdparty` | both | User-land free-form message | tested | `test_propagate.py`, `test_unimplemented_types.py` |
-| BINARY | `bin` | satellite→master | Binary data container (7 subtypes) | tested | `test_binary.py`, `test_binary_flow.py`, `test_binarize_e2e.py` |
+| BINARY | `bin` | satellite→master | Binary data container (7 subtypes) | tested | `test_binary.py`, `test_e2e_binary_skill.py`. **Gap:** the binarize (bitstring) encoding is not covered — see [FAQ](../FAQ.md) |
 
 ### Not-yet-implemented types (RENDEZVOUS)
 
@@ -66,10 +73,10 @@ QUERY and CASCADE are now fully implemented with dedicated handlers and test sui
 | `can_escalate=False` | tested | `test_escalate.py::TestEscalateRespectsCantEscalate` |
 | `can_propagate=False` | tested | `test_propagate.py::TestPropagateCannotPropagate` |
 | `is_admin` broadcast check | tested | `test_broadcast.py::TestBroadcastFromNonAdmin` |
-| `msg_blacklist` | tested | `test_acl.py::TestMessageBlacklist` |
-| `skill_blacklist` | tested | `test_acl.py::TestSkillBlacklist` |
-| `intent_blacklist` | tested | `test_acl.py::TestIntentBlacklist` |
-| `allowed_types` | tested | `test_bus.py::TestAllowedTypes`, `test_acl.py::TestAllowedTypes` |
+| `msg_blacklist` (outbound) | removed upstream | hivemind-core is whitelist-only; `Client.message_blacklist` no longer exists. `register_satellite(msg_blacklist=...)` is accepted and ignored. The old `test_acl.py::TestMessageBlacklist` asserted removed behaviour and was deleted (see the comment at `tests/test_acl.py:10`). |
+| `skill_blacklist` (downstream delivery) | tested | `test_acl.py::TestSkillBlacklist` (session injection) + `test_e2e_acl_skills.py` (live OVOS enforcement) |
+| `intent_blacklist` (downstream delivery) | tested | `test_acl.py::TestIntentBlacklist` (session injection) + `test_e2e_acl_skills.py` (live OVOS enforcement) |
+| `allowed_types` (admission whitelist) | tested | `test_bus.py::TestAllowedTypes`, `test_acl.py::TestAllowedTypes` — including the `hive.policy.denied` response with deny code `acl_disallowed_type` |
 | `target_site_id` (BROADCAST) | tested | `test_broadcast.py::TestBroadcastTargetSiteId` |
 | `target_pubkey` (INTERCOM) | tested | `test_intercom.py::TestIntercomNoEncryption` |
 
@@ -103,44 +110,78 @@ QUERY and CASCADE are now fully implemented with dedicated handlers and test sui
 
 ---
 
-## All Test Files (32 files, 326 tests)
+## All Test Modules
+
+Counts from `pytest tests --collect-only -q`.
+
+### In-process protocol layer (CI job: `harness-tests`)
 
 | File | Tests | Purpose |
 |---|---|---|
-| `test_acl.py` | 6 | Message/skill/intent blacklists, allowed_types |
+| `test_acl.py` | 6 | Skill/intent blacklist injection, allowed_types admission + deny code |
 | `test_all_topologies.py` | 27 | Cross-topology protocol validation |
 | `test_audio_transformers.py` | 8 | Audio pipeline transformer integration |
-| `test_binarize_e2e.py` | 7 | Binary bitstring encoding roundtrip (Protocol V2) |
-| `test_binary_flow.py` | 9 | Binary data flow through relay chains |
 | `test_binary.py` | 7 | All 7 binary payload types |
 | `test_broadcast.py` | 6 | Admin/non-admin broadcast, target_site_id |
 | `test_bus.py` | 9 | BUS inject, reply, allowed_types, multi-satellite |
-| `test_query.py` | 6 | QUERY local answer, escalate on timeout, relay chain, ACL, response routing |
-| `test_cascade.py` | 8 | CASCADE responses, star topology forwarding, relay, ACL, disambiguation |
-| `test_embedded_clients.py` | 11 | Embedded (ESP32/MicroPython) client protocol |
-| `test_embedded_comprehensive.py` | 16 | Comprehensive embedded client scenarios |
-| `test_embedded_interop.py` | 10 | Embedded ↔ standard client interoperability |
+| `test_cascade.py` | 8 | CASCADE responses, star forwarding, relay, ACL, disambiguation |
 | `test_escalate.py` | 6 | Upstream-only routing, can_escalate ACL |
-| `test_handshake_edge_cases.py` | 5 | Handshake failure modes and edge cases |
-| `test_handshake.py` | 12 | PAKE handshake, session setup, multi-satellite |
-| `test_helloworld_hivemind.py` | 15 | Full utterance→skill→speak roundtrip via ovoscope |
-| `test_hivemind_bus_client_e2e.py` | 5 | hivemind-bus-client integration |
+| `test_handshake.py` | 12 | Handshake, session setup, multi-satellite |
+| `test_hivemind_bus_client_e2e.py` | 5 | Real hivemind-bus-client over a loopback websocket |
 | `test_intercom.py` | 4 | Peer-to-peer RSA-encrypted routing |
-| `test_js_e2e.py` | 3 | JavaScript client protocol compatibility |
-| `test_micropython_e2e.py` | 4 | MicroPython client protocol compatibility |
-| `test_ovoscope_integration.py` | 9 | OvoscopeAgentProtocol with real IntentService |
+| `test_ping_exactly_once.py` | 11 | PING delivered exactly once per node across relays |
 | `test_ping_pong.py` | 49 | PING network topology discovery |
 | `test_propagate.py` | 6 | Fan-out + escalate, can_propagate ACL |
-| `test_protocol_fixes.py` | 8 | Regression tests for bugs fixed in core/client |
+| `test_protocol_fixes.py` | 7 | Regression tests for bugs fixed in core/client |
 | `test_protocol_rules.py` | 14 | Protocol invariant validation |
+| `test_query.py` | 6 | QUERY local answer, escalate on timeout, relay chain, ACL |
+| `test_route_metadata.py` | 8 | Route/hop metadata carried on forwarded messages |
 | `test_routing.py` | 7 | Deep chain escalate/propagate, hop tracking |
 | `test_shared_bus.py` | 4 | Passive bus monitoring (share_bus flag) |
-| `test_solver_harness.py` | 5 | Solver plugin harness integration |
-| `test_topology_plots.py` | 12 | Topology visualization/validation |
-| `test_unimplemented_types.py` | 5 | QUERY/CASCADE/RENDEZVOUS stub safety |
-| `test_utterance_flow.py` | 6 | End-to-end utterance processing flow |
+| `test_unimplemented_types.py` | 5 | RENDEZVOUS / unknown-type stub safety |
 | `test_voice_pe_protocol.py` | 18 | Voice PE protocol message handling |
-| `test_voice_pe_satellite.py` | 13 | Voice PE satellite integration |
+
+### Live OVOS skill execution (CI job: `ovos-e2e`)
+
+| File | Tests | Purpose |
+|---|---|---|
+| `test_e2e_acl_skills.py` | 8 | Downstream skill/intent blacklist ENFORCEMENT by OVOS |
+| `test_e2e_admin_broadcast.py` | 4 | Admin broadcast reaching live skills |
+| `test_e2e_ask_yesno_selection.py` | 10 | ask_yesno / ask_selection dialogs over HiveMind |
+| `test_e2e_binary_skill.py` | 5 | Binary payload delivered to a skill |
+| `test_e2e_converse.py` | 5 | Converse loop over HiveMind |
+| `test_e2e_converse_advanced.py` | 7 | Cancel, timeout and concurrent get_response |
+| `test_e2e_get_response.py` | 7 | get_response round-trips through a satellite |
+| `test_e2e_lang.py` | 5 | Per-session language routing |
+| `test_e2e_misc_skills.py` | 8 | IP/count skills and utterance edge cases |
+| `test_e2e_multi_satellite.py` | 3 | Two satellites, independent sessions |
+| `test_e2e_ocp.py` | 5 | OCP media pipeline over HiveMind |
+| `test_e2e_relay_acl.py` | 5 | Blacklists compounding through a relay chain |
+| `test_e2e_relay_skills.py` | 5 | Skill execution through 1 and 2 relays |
+| `test_e2e_scheduler.py` | 4 | schedule_event callbacks reaching the satellite |
+| `test_e2e_session.py` | 4 | Session identity end-to-end |
+| `test_e2e_shared_bus.py` | 4 | shared_bus monitoring with a live agent |
+| `test_e2e_skills.py` | 11 | Date-time / personal / naptime / fallback / spelling skills |
+| `test_e2e_stop.py` | 7 | Stop handling over HiveMind |
+| `test_e2e_volume_phal.py` | 13 | Volume skill against a mock PHAL on the satellite |
+| `test_helloworld_hivemind.py` | 15 | Full utterance→skill→speak round-trip |
+| `test_ovoscope_integration.py` | 9 | OvoscopeAgentProtocol with a real IntentService |
+| `test_protocol_v3_noise.py` | 7 | Protocol v3 Noise XXpsk2 against a REAL hivemind-core subprocess |
+| `test_solver_harness.py` | 5 | HiveMindSolver plugin harness |
+| `test_topology_plots.py` | 12 | Topology + discovery plot rendering |
+
+### Other runtimes
+
+| File | Tests | CI job | Purpose |
+|---|---|---|---|
+| `test_js_e2e.py` | 3 | `js-e2e` | JavaScript client protocol compatibility (skips without `node`) |
+| `test_embedded_interop.py` | 37 | `embedded-tests` | Embedded ↔ standard client crypto interoperability |
+| `test_embedded_comprehensive.py` | 16 | `embedded-tests` | MicroPython crypto + binary protocol |
+| `test_embedded_clients.py` | 11 | `micropython-e2e` | Embedded client protocol against an in-process hub |
+| `test_micropython_e2e.py` | 4 | `micropython-e2e` | MicroPython client over a loopback websocket |
+
+The four embedded modules call `pytest.importorskip` on the MicroPython client
+package, so they skip cleanly when that checkout is absent.
 
 ---
 

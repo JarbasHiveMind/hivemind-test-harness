@@ -92,28 +92,32 @@ class TestAdminDefaultSession:
 
     def test_non_admin_default_session_disconnects(self):
         b = TopologyBuilder()
-        b.add_master("M0")
-        b.add_satellite("S0", upstream=b.get_master("M0"))
-        # S0 is non-admin (default)
-        b.start_all()
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"))
+            # S0 is non-admin (default)
+            b.start_all()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        # Verify satellite is connected before stopping — the default session
-        # rejection only applies if the satellite explicitly requests
-        # session_id="default" in HELLO; the harness sends the real session_id.
-        assert s0.peer in m0.hm_protocol.clients
-        b.stop_all()
+            # Verify satellite is connected before stopping — the default session
+            # rejection only applies if the satellite explicitly requests
+            # session_id="default" in HELLO; the harness sends the real session_id.
+            assert s0.peer in m0.hm_protocol.clients
+        finally:
+            b.stop_all()
 
     def test_admin_can_use_any_session(self):
         b = TopologyBuilder()
-        b.add_master("M0")
-        b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True)
-        b.start_all()
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
-        assert s0.peer in m0.hm_protocol.clients
-        b.stop_all()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True)
+            b.start_all()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
+            assert s0.peer in m0.hm_protocol.clients
+        finally:
+            b.stop_all()
 
 
 class TestMultipleSatellites:

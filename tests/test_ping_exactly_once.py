@@ -99,48 +99,56 @@ def _instrument_satellites(topology, recorder: dict):
 def minimal():
     """1 master, 1 satellite."""
     b = TopologyBuilder()
-    b.add_master("M0")
-    b.add_satellite("S0", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b
-    b.stop_all()
+    try:
+        b.add_master("M0")
+        b.add_satellite("S0", upstream=b.get_master("M0"))
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 @pytest.fixture
 def star3():
     """1 master, 3 satellites."""
     b = TopologyBuilder()
-    b.add_master("M0")
-    for i in range(3):
-        b.add_satellite(f"S{i}", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b
-    b.stop_all()
+    try:
+        b.add_master("M0")
+        for i in range(3):
+            b.add_satellite(f"S{i}", upstream=b.get_master("M0"))
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 @pytest.fixture
 def chain():
     """M0 → relay R1 → S0."""
     b = TopologyBuilder()
-    b.add_master("M0")
-    _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=r1_master)
-    b.start_all()
-    yield b
-    b.stop_all()
+    try:
+        b.add_master("M0")
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        b.add_satellite("S0", upstream=r1_master)
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 @pytest.fixture
 def deep_chain():
     """M0 → R1 → R2 → S0."""
     b = TopologyBuilder()
-    b.add_master("M0")
-    _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    _, r2_master = b.add_relay("R2", upstream=r1_master)
-    b.add_satellite("S0", upstream=r2_master)
-    b.start_all()
-    yield b
-    b.stop_all()
+    try:
+        b.add_master("M0")
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        r2_master = b.add_relay("R2", upstream=r1_master).listener
+        b.add_satellite("S0", upstream=r2_master)
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 @pytest.fixture
@@ -152,16 +160,18 @@ def diamond():
         └─ R2 → S2, S3
     """
     b = TopologyBuilder()
-    b.add_master("M0")
-    _, r1m = b.add_relay("R1", upstream=b.get_master("M0"))
-    _, r2m = b.add_relay("R2", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=r1m)
-    b.add_satellite("S1", upstream=r1m)
-    b.add_satellite("S2", upstream=r2m)
-    b.add_satellite("S3", upstream=r2m)
-    b.start_all()
-    yield b
-    b.stop_all()
+    try:
+        b.add_master("M0")
+        r1m = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        r2m = b.add_relay("R2", upstream=b.get_master("M0")).listener
+        b.add_satellite("S0", upstream=r1m)
+        b.add_satellite("S1", upstream=r1m)
+        b.add_satellite("S2", upstream=r2m)
+        b.add_satellite("S3", upstream=r2m)
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +374,7 @@ class TestPingExactlyOnceDiamond:
                "does not currently reach the opposite branch's leaves; whether "
                "PING should flood across branches is unverified against the "
                "spec. Tracked in hivemind-test-harness#6.",
-        strict=False,
+        strict=True,
     )
     def test_cross_branch_pings_reach_siblings(self, diamond):
         """S0's responsive PING (via R1→M0→R2) reaches S2 and S3 exactly once."""

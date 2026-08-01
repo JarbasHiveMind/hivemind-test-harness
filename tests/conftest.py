@@ -45,11 +45,15 @@ from hivescope.topology import TopologyBuilder
 pytest_plugins = ["hivescope.pytest_fixtures"]
 
 # Standard satellite→master voice/audio message types a normal satellite is
-# granted (hivemind-core is deny-by-default / whitelist-only). Tests that
+# granted. hivemind-core is deny-by-default / whitelist-only: a satellite that
+# is not granted ``recognizer_loop:utterance`` has its utterances rejected at
+# admission ("policy denied ... acl_disallowed_type") and the agent never sees
+# them, so every skill-execution assertion in the module fails with an empty
+# capture. Modules that build their own topology import this list. Tests that
 # exercise ACL restriction build their own topologies with explicit
 # allowed_types instead of these fixtures; non-standard types (e.g.
 # speak:synth) are still denied by default and granted per-test where needed.
-_VOICE_TYPES = [
+VOICE_TYPES = [
     "recognizer_loop:utterance",
     "recognizer_loop:record_begin",
     "recognizer_loop:record_end",
@@ -66,11 +70,13 @@ _VOICE_TYPES = [
 def minimal_topology():
     """T1: 1 master, 1 satellite."""
     b = TopologyBuilder()
-    b.add_master("M0")
-    b.add_satellite("S0", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
-    b.start_all()
-    yield b
-    b.stop_all()
+    try:
+        b.add_master("M0")
+        b.add_satellite("S0", upstream=b.get_master("M0"), allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 # ---------------------------------------------------------------------------
@@ -82,25 +88,29 @@ def star_topology(request):
     """T2: 1 master, N satellites (default 3). Override via @pytest.mark.parametrize."""
     n = getattr(request, "param", 3)
     b = TopologyBuilder()
-    b.add_master("M0")
-    for i in range(n):
-        b.add_satellite(f"S{i}", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
-    b.start_all()
-    yield b
-    b.stop_all()
+    try:
+        b.add_master("M0")
+        for i in range(n):
+            b.add_satellite(f"S{i}", upstream=b.get_master("M0"), allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 @pytest.fixture
 def admin_star_topology():
     """T2 variant: 1 master, 3 satellites where S0 is admin."""
     b = TopologyBuilder()
-    b.add_master("M0")
-    b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True, allowed_types=_VOICE_TYPES)
-    b.add_satellite("S1", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
-    b.add_satellite("S2", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
-    b.start_all()
-    yield b
-    b.stop_all()
+    try:
+        b.add_master("M0")
+        b.add_satellite("S0", upstream=b.get_master("M0"), is_admin=True, allowed_types=VOICE_TYPES)
+        b.add_satellite("S1", upstream=b.get_master("M0"), allowed_types=VOICE_TYPES)
+        b.add_satellite("S2", upstream=b.get_master("M0"), allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 # ---------------------------------------------------------------------------
@@ -111,25 +121,29 @@ def admin_star_topology():
 def chain_topology():
     """T3: M0 → relay R1 (satellite+master) → S0."""
     b = TopologyBuilder()
-    b.add_master("M0")
-    _, relay_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=relay_master, allowed_types=_VOICE_TYPES)
-    b.start_all()
-    yield b
-    b.stop_all()
+    try:
+        b.add_master("M0")
+        relay_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        b.add_satellite("S0", upstream=relay_master, allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 @pytest.fixture
 def deep_chain_topology():
     """T3 variant: M0 → R1 → R2 → S0 (depth 3)."""
     b = TopologyBuilder()
-    b.add_master("M0")
-    _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    _, r2_master = b.add_relay("R2", upstream=r1_master)
-    b.add_satellite("S0", upstream=r2_master, allowed_types=_VOICE_TYPES)
-    b.start_all()
-    yield b
-    b.stop_all()
+    try:
+        b.add_master("M0")
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        r2_master = b.add_relay("R2", upstream=r1_master).listener
+        b.add_satellite("S0", upstream=r2_master, allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 # ---------------------------------------------------------------------------
@@ -161,23 +175,35 @@ def huge_hive_topology():
     Use ``-m "not slow"`` to skip in quick CI runs.
     """
     b = TopologyBuilder()
-    b.add_master("M0")
+    try:
+        b.add_master("M0")
 
-    sat_idx = 0
-    for relay_idx, n_sats in enumerate(_HUGE_HIVE_COUNTS):
-        _, rm = b.add_relay(f"RM{relay_idx}", upstream=b.get_master("M0"))
-        for _ in range(n_sats):
-            b.add_satellite(f"HS{sat_idx}", upstream=rm, allowed_types=_VOICE_TYPES)
-            sat_idx += 1
+        sat_idx = 0
+        for relay_idx, n_sats in enumerate(_HUGE_HIVE_COUNTS):
+            rm = b.add_relay(f"RM{relay_idx}", upstream=b.get_master("M0")).listener
+            for _ in range(n_sats):
+                b.add_satellite(f"HS{sat_idx}", upstream=rm, allowed_types=VOICE_TYPES)
+                sat_idx += 1
 
-    b.start_all()
-    yield b
-    b.stop_all()
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 def huge_hive_total_satellites() -> int:
     """Return the expected number of leaf satellites in huge_hive_topology."""
     return sum(_HUGE_HIVE_COUNTS)
+
+
+def huge_hive_expected_satellites() -> int:
+    """Return every satellite connection M0 discovers in huge_hive_topology.
+
+    That is one satellite side per relay, plus every leaf satellite behind the
+    relays. Tests import this instead of re-deriving the counts from a copied
+    seed, so the topology and its expectations can never drift apart.
+    """
+    return len(_HUGE_HIVE_COUNTS) + sum(_HUGE_HIVE_COUNTS)
 
 
 # ---------------------------------------------------------------------------
@@ -208,29 +234,31 @@ def chaotic_hive_topology():
     Total: 1 root master + 3 relay masters + 7 leaf satellites = 11 nodes.
     """
     b = TopologyBuilder()
-    b.add_master("M0")
+    try:
+        b.add_master("M0")
 
-    # R1: relay off M0, serves S0, S1, S2
-    _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=r1_master, allowed_types=_VOICE_TYPES)
-    b.add_satellite("S1", upstream=r1_master, allowed_types=_VOICE_TYPES)
-    b.add_satellite("S2", upstream=r1_master, allowed_types=_VOICE_TYPES)
+        # R1: relay off M0, serves S0, S1, S2
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        b.add_satellite("S0", upstream=r1_master, allowed_types=VOICE_TYPES)
+        b.add_satellite("S1", upstream=r1_master, allowed_types=VOICE_TYPES)
+        b.add_satellite("S2", upstream=r1_master, allowed_types=VOICE_TYPES)
 
-    # R2: relay off M0, serves S3 and a nested relay R3
-    _, r2_master = b.add_relay("R2", upstream=b.get_master("M0"))
-    b.add_satellite("S3", upstream=r2_master, allowed_types=_VOICE_TYPES)
+        # R2: relay off M0, serves S3 and a nested relay R3
+        r2_master = b.add_relay("R2", upstream=b.get_master("M0")).listener
+        b.add_satellite("S3", upstream=r2_master, allowed_types=VOICE_TYPES)
 
-    # R3: nested relay off R2, serves S4, S5
-    _, r3_master = b.add_relay("R3", upstream=r2_master)
-    b.add_satellite("S4", upstream=r3_master, allowed_types=_VOICE_TYPES)
-    b.add_satellite("S5", upstream=r3_master, allowed_types=_VOICE_TYPES)
+        # R3: nested relay off R2, serves S4, S5
+        r3_master = b.add_relay("R3", upstream=r2_master).listener
+        b.add_satellite("S4", upstream=r3_master, allowed_types=VOICE_TYPES)
+        b.add_satellite("S5", upstream=r3_master, allowed_types=VOICE_TYPES)
 
-    # S6: direct satellite of root M0
-    b.add_satellite("S6", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
+        # S6: direct satellite of root M0
+        b.add_satellite("S6", upstream=b.get_master("M0"), allowed_types=VOICE_TYPES)
 
-    b.start_all()
-    yield b
-    b.stop_all()
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 # ---------------------------------------------------------------------------
@@ -261,21 +289,23 @@ def asymmetric_hive_topology():
     """
     _DEPTH = 10
     b = TopologyBuilder()
-    b.add_master("M0")
+    try:
+        b.add_master("M0")
 
-    # Long arm: chain of DEPTH relays
-    current_master = b.get_master("M0")
-    for i in range(_DEPTH):
-        _, current_master = b.add_relay(f"RA{i}", upstream=current_master)
-    b.add_satellite("S_deep", upstream=current_master, allowed_types=_VOICE_TYPES)
+        # Long arm: chain of DEPTH relays
+        current_master = b.get_master("M0")
+        for i in range(_DEPTH):
+            current_master = b.add_relay(f"RA{i}", upstream=current_master).listener
+        b.add_satellite("S_deep", upstream=current_master, allowed_types=VOICE_TYPES)
 
-    # Short arms: 3 direct satellites of M0
-    for i in range(3):
-        b.add_satellite(f"S_short{i}", upstream=b.get_master("M0"), allowed_types=_VOICE_TYPES)
+        # Short arms: 3 direct satellites of M0
+        for i in range(3):
+            b.add_satellite(f"S_short{i}", upstream=b.get_master("M0"), allowed_types=VOICE_TYPES)
 
-    b.start_all()
-    yield b
-    b.stop_all()
+        b.start_all()
+        yield b
+    finally:
+        b.stop_all()
 
 
 # ---------------------------------------------------------------------------
@@ -313,35 +343,49 @@ MINICROFT_READY_TIMEOUT = 180
 
 
 def make_ovoscope_agent(skill_ids=None, *, extra_skills=None,
-                        max_wait: float = MINICROFT_READY_TIMEOUT):
+                        max_wait: float = MINICROFT_READY_TIMEOUT,
+                        **minicroft_kwargs):
     """Build an :class:`OvoscopeAgentProtocol` with a generous READY budget.
 
     Pre-starts the MiniCroft via ``ovoscope.get_minicroft`` with ``max_wait`` so
     a slow-but-healthy boot (full default plugin set + cold-cache skill first
-    runs on a loaded CI runner) is not mistaken for a startup failure. Falls
-    back to letting OvoscopeAgentProtocol start MiniCroft itself if ovoscope's
-    helper is unavailable.
+    runs on a loaded CI runner) is not mistaken for a startup failure.
+
+    Extra keyword arguments go straight to ``MiniCroft``. Use them to switch on
+    a service the default MiniCroft leaves off, e.g.
+    ``enable_event_scheduler=True`` for skills that call ``schedule_event()``.
     """
     from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
+    from ovoscope import get_minicroft
     skill_ids = list(skill_ids or [])
     extra_skills = extra_skills or {}
+    minicroft = get_minicroft(skill_ids, extra_skills=extra_skills,
+                              max_wait=max_wait, **minicroft_kwargs)
     try:
-        from ovoscope import get_minicroft
-    except Exception:
-        # ovoscope layout changed — defer to the protocol's own boot (60s).
-        return OvoscopeAgentProtocol(skill_ids=skill_ids, extra_skills=extra_skills)
-    minicroft = get_minicroft(skill_ids, extra_skills=extra_skills, max_wait=max_wait)
-    return OvoscopeAgentProtocol(minicroft=minicroft)
+        return OvoscopeAgentProtocol(minicroft=minicroft)
+    except BaseException:
+        # The MiniCroft is already booted (threads, bus, skill services). If the
+        # protocol constructor raises, nothing else holds a reference to it, so
+        # shut it down here instead of leaking it into the rest of the session.
+        shutdown = getattr(minicroft, "stop", None) or getattr(minicroft, "shutdown", None)
+        if shutdown is not None:
+            shutdown()
+        raise
 
 
 def skill_missing(*skill_ids: str) -> bool:
-    """Return True if ANY of the given skills are not installed."""
+    """Return True if ANY of the given skills are not installed.
+
+    Only an ImportError (the OVOS plugin manager is not installed at all) means
+    "cannot tell — assume missing". Every other failure is a real fault and
+    propagates, so a broken plugin scan is not silently reported as a skip.
+    """
     try:
         from ovos_plugin_manager.skills import find_skill_plugins
-        plugins = find_skill_plugins()
-        return any(sid not in plugins for sid in skill_ids)
-    except Exception:
+    except ImportError:
         return True
+    plugins = find_skill_plugins()
+    return any(sid not in plugins for sid in skill_ids)
 
 
 def make_utterance(text: str, pipeline: list, session_id: str,
@@ -381,18 +425,60 @@ def wait_for_satellite_message(satellite, msg_type: str, timeout: float = 30.0):
     so a message that already arrived *before* this call (e.g. the skill's
     speak landed during the preceding ``cap.wait(...)``) is still matched —
     a late ``once`` listener would silently miss it and the test would flake.
+
+    The recorder keys each record on the HiveMessage *envelope* type ("bus",
+    "broadcast", …), never on the OVOS topic inside it, so
+    ``recorder.wait_for("ovos.utterance.speak")`` never matches anything and
+    every caller times out. Match on the payload's own ``type`` field instead.
     """
+    import time
     from ovos_bus_client.message import Message
-    rec = satellite.recorder.wait_for(msg_type, direction="in", timeout=timeout)
-    if rec is None:
+
+    def _as_message(payload):
+        if isinstance(payload, Message):
+            return payload
+        return Message(payload.get("type", msg_type),
+                       payload.get("data", {}),
+                       payload.get("context", {}))
+
+    def _payload_type(payload):
+        if isinstance(payload, Message):
+            return payload.msg_type
+        if isinstance(payload, dict):
+            return payload.get("type")
         return None
-    payload = rec.payload
-    if isinstance(payload, Message):
-        return payload
-    if isinstance(payload, dict):
-        return Message(
-            payload.get("type", msg_type),
-            payload.get("data", {}),
-            payload.get("context", {}),
-        )
-    return payload
+
+    deadline = time.monotonic() + timeout
+    while True:
+        for rec in reversed(satellite.recorder.snapshot()):
+            if rec.direction != "in":
+                continue
+            if _payload_type(rec.payload) == msg_type:
+                return _as_message(rec.payload)
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.05)
+
+
+def open_capture(agent, **kwargs):
+    """Open an ARMED capture session on the agent's MiniCroft bus.
+
+    ovoscope's ``CaptureSession`` only counts EOF messages while it is armed,
+    and the only thing that arms it is ``CaptureSession.capture()`` — which
+    also emits the source message. The HiveMind harness cannot use that path:
+    the satellite emits the utterance, not the capture. hivescope's
+    ``agent.new_capture()`` therefore hands back a session that is never
+    armed, so ``wait()`` ignores every EOF message, always burns its full
+    timeout, and ``assert_complete()`` can never pass.
+
+    Arm the session here, with the same reset ``capture()`` does, so a capture
+    ends when the utterance is handled instead of when the clock runs out.
+    """
+    cap = agent.new_capture(**kwargs)
+    session = cap._cap
+    with session._eof_lock:
+        session.done.clear()
+        session._eof_seen = 0
+        session._generation += 1
+        session._armed = True
+    return cap

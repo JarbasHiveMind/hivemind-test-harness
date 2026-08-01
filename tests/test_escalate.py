@@ -55,23 +55,25 @@ class TestEscalateRespectsCantEscalate:
     def test_illegal_escalate_fires_callback(self):
         from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
-        b.add_master("M0")
-        b.add_satellite("S0", upstream=b.get_master("M0"), can_escalate=False)
-        b.start_all()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"), can_escalate=False)
+            b.start_all()
 
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        illegal_calls = []
-        m0.hm_protocol.illegal_callback = illegal_calls.append
-        escalate_calls = []
-        m0.hm_protocol.escalate_callback = escalate_calls.append
+            illegal_calls = []
+            m0.hm_protocol.illegal_callback = illegal_calls.append
+            escalate_calls = []
+            m0.hm_protocol.escalate_callback = escalate_calls.append
 
-        s0.send(_escalate_msg())
+            s0.send(_escalate_msg())
 
-        assert len(illegal_calls) == 1, "illegal_callback should fire"
-        assert len(escalate_calls) == 0, "escalate_callback must not fire"
-        b.stop_all()
+            assert len(illegal_calls) == 1, "illegal_callback should fire"
+            assert len(escalate_calls) == 0, "escalate_callback must not fire"
+        finally:
+            b.stop_all()
 
 
 class TestEscalateChain:

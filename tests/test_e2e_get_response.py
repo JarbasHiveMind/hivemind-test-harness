@@ -35,13 +35,20 @@ from typing import List, Optional
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
     SKILL_RANDOMNESS, SKILL_VOLUME,
     skill_missing, make_utterance, wait_for_satellite_message,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 # Pipeline must include converse for get_response to work
 GET_RESPONSE_PIPELINE = [
@@ -72,7 +79,7 @@ class SatelliteAutoResponder:
         self._lock = threading.Lock()
 
         # Listen for speak on satellite bus
-        satellite.internal_bus.on("speak", self._on_speak)
+        satellite.internal_bus.on(SpecMessage.SPEAK, self._on_speak)
 
     def _on_speak(self, msg: Message) -> None:
         """Handle speak messages, auto-responding when expect_response is True."""
@@ -94,7 +101,7 @@ class SatelliteAutoResponder:
 
     def shutdown(self) -> None:
         """Remove all speak listeners."""
-        self.satellite.internal_bus.remove_all_listeners("speak")
+        self.satellite.internal_bus.remove_all_listeners(SpecMessage.SPEAK)
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +111,7 @@ class SatelliteAutoResponder:
 @pytest.fixture(scope="module")
 def get_response_topology():
     """Boot MiniCroft with randomness + volume skills."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_RANDOMNESS, SKILL_VOLUME])
+    agent = make_ovoscope_agent(skill_ids=[SKILL_RANDOMNESS, SKILL_VOLUME])
 
     # Volume get responder for _query_volume
     agent.bus.on("mycroft.volume.get",
@@ -120,13 +127,15 @@ def get_response_topology():
         pytest.skip("Randomness skill intents not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"),
-                    allowed_types=["recognizer_loop:utterance"])
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                        allowed_types=["recognizer_loop:utterance"])
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +153,7 @@ class TestMakeAChoice:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture(
+        cap = open_capture(agent, 
             eof_msgs=["ovos.utterance.handled", "skill.converse.get_response.enable"]
         )
         s0.send(make_utterance("make a choice", GET_RESPONSE_PIPELINE,
@@ -152,7 +161,7 @@ class TestMakeAChoice:
         messages = cap.wait(timeout=60)
 
         # Skill should ask "What is the first choice?"
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Skill did not speak initial question.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -168,14 +177,14 @@ class TestMakeAChoice:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture(
+        cap = open_capture(agent, 
             eof_msgs=["ovos.utterance.handled", "skill.converse.get_response.enable"]
         )
         s0.send(make_utterance("make a choice", GET_RESPONSE_PIPELINE,
                                 s0.shim.session_id))
         cap.wait(timeout=60)
 
-        msg = wait_for_satellite_message(s0, "speak", timeout=10)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "get_response question not forwarded to satellite"
 
     def test_full_choice_dialog(self, get_response_topology):
@@ -226,7 +235,7 @@ class TestMakeAChoice:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture(
+        cap = open_capture(agent, 
             eof_msgs=["skill.converse.get_response.enable"]
         )
         s0.send(make_utterance("make a choice", GET_RESPONSE_PIPELINE,
@@ -254,12 +263,12 @@ class TestFlipACoin:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("flip a coin", GET_RESPONSE_PIPELINE,
                                 s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"'speak' not emitted for coin flip.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -271,12 +280,12 @@ class TestFlipACoin:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("pick a number between 1 and 10",
                                 GET_RESPONSE_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"'speak' not emitted for pick a number.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -298,7 +307,7 @@ class TestVolumeGetResponse:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture(
+        cap = open_capture(agent, 
             eof_msgs=["ovos.utterance.handled", "skill.converse.get_response.enable"]
         )
         # "change volume" matches adapt intent but has no number -> get_response
@@ -307,7 +316,7 @@ class TestVolumeGetResponse:
         messages = cap.wait(timeout=60)
 
         # Should get a speak asking for the volume level
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Volume skill did not ask for amount.\n"
             f"Captured: {[m.msg_type for m in messages]}"

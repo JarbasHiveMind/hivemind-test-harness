@@ -13,15 +13,23 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
-from ovos_workshop.decorators import intent_handler
+from ovos_spec_tools import SpecMessage
+from ovos_workshop.intents import IntentBuilder
 from ovos_workshop.skills import OVOSSkill
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
+    VOICE_TYPES,
     SKILL_HELLO,
     skill_missing, make_utterance,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
 DEFAULT_PIPELINE = [
@@ -42,10 +50,20 @@ MULTILANG_SKILL_ID = "multilang-test-skill.test"
 class MultiLangTestSkill(OVOSSkill):
     """Injected skill that responds differently based on language.
 
-    Has no locale files — uses code-based language detection.
+    Has no locale files, so the intent is registered programmatically with
+    inline Adapt vocabulary. The padatious
+    ``@intent_handler("test.lang.intent")`` form only logs ``Unable to find
+    "test.lang.intent"`` for a package-less injected skill and never reaches
+    the pipeline.
     """
 
-    @intent_handler("test.lang.intent")
+    def initialize(self):
+        self.register_vocabulary("test language", "TestLangKeyword")
+        self.register_intent(
+            IntentBuilder("TestLangIntent").require("TestLangKeyword"),
+            self.handle_lang_test,
+        )
+
     def handle_lang_test(self, message: Message):
         lang = self.lang
         self.speak(f"language is {lang}")
@@ -54,7 +72,7 @@ class MultiLangTestSkill(OVOSSkill):
 @pytest.fixture(scope="module")
 def lang_topology():
     """MiniCroft with hello-world + multilang test skill."""
-    agent = OvoscopeAgentProtocol(
+    agent = make_ovoscope_agent(
         skill_ids=[SKILL_HELLO],
         extra_skills={MULTILANG_SKILL_ID: MultiLangTestSkill}
     )
@@ -68,12 +86,15 @@ def lang_topology():
         pytest.skip("Skills not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 @pytest.mark.skipif(skill_missing(SKILL_HELLO), reason="ovos-skill-hello-world not installed")
@@ -86,7 +107,7 @@ class TestLangPropagation:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id,
                                 lang="en-US"))
         messages = cap.wait(timeout=15)
@@ -101,7 +122,7 @@ class TestLangPropagation:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id,
                                 lang="en-US"))
         messages = cap.wait(timeout=15)
@@ -124,7 +145,7 @@ class TestLangMismatch:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hallo welt", ADAPT_PIPELINE, s0.shim.session_id,
                                 lang="de-DE"))
         messages = cap.wait(timeout=15)
@@ -140,7 +161,7 @@ class TestLangMismatch:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("bonjour le monde", ADAPT_PIPELINE, s0.shim.session_id,
                                 lang="fr-FR"))
         messages = cap.wait(timeout=15)
@@ -160,12 +181,12 @@ class TestLangInResponse:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id,
                                 lang="en-US"))
         messages = cap.wait(timeout=15)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None
         sess = speak.context.get("session", {})
         assert sess.get("lang") == "en-US", (

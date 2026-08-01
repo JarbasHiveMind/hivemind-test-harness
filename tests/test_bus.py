@@ -98,17 +98,19 @@ class TestAllowedTypes:
 
     def test_unauthorized_type_is_dropped(self):
         b = TopologyBuilder()
-        b.add_master("M0")
-        b.add_satellite("S0", upstream=b.get_master("M0"),
-                        allowed_types=["recognizer_loop:utterance"])
-        b.start_all()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"),
+                            allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
 
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        s0.send(Message("some.unauthorized.message", {}))
-        m0.agent_protocol.assert_not_injected("some.unauthorized.message")
-        b.stop_all()
+            s0.send(Message("some.unauthorized.message", {}))
+            m0.agent_protocol.assert_not_injected("some.unauthorized.message")
+        finally:
+            b.stop_all()
 
 
 class TestMultipleSatellitesBus:

@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 # Ensure the MicroPython client package is importable (no pyproject.toml to install)
-def _find_mp_client_root() -> Path:
+def _find_mp_client_root():
     """Locate the hivemind-micropython-client checkout (see env override)."""
     env = os.environ.get("HIVEMIND_MICROPYTHON_CLIENT")
     if env:
@@ -29,12 +29,21 @@ def _find_mp_client_root() -> Path:
     for cand in candidates:
         if (cand / "hivemind" / "client.py").exists():
             return cand
-    return candidates[0]
+    return None
 
 
 _MP_CLIENT_ROOT = _find_mp_client_root()
-if str(_MP_CLIENT_ROOT) not in sys.path:
+if _MP_CLIENT_ROOT is not None and str(_MP_CLIENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_MP_CLIENT_ROOT))
+
+# The MicroPython client lives in a separate (currently private) repo. Without a
+# checkout the module is absent, so skip the whole file instead of failing
+# collection for every test in the run.
+pytest.importorskip(
+    "hivemind.crypto",
+    reason="hivemind-micropython-client checkout not found; set "
+           "HIVEMIND_MICROPYTHON_CLIENT to its path",
+)
 
 # MicroPython client crypto (pure Python implementation)
 from hivemind.crypto import (

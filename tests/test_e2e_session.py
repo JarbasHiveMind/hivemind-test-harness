@@ -18,13 +18,20 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 from ovos_bus_client.session import Session
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
     SKILL_HELLO, SKILL_DATETIME,
     skill_missing, make_utterance, make_ovoscope_agent,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
 PADATIOUS_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
@@ -47,13 +54,15 @@ def session_topology():
         pytest.skip("HelloWorldIntent not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"),
-                    allowed_types=["recognizer_loop:utterance"])
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                        allowed_types=["recognizer_loop:utterance"])
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 @pytest.mark.skipif(skill_missing(SKILL_HELLO, SKILL_DATETIME),
@@ -67,7 +76,7 @@ class TestLangPropagation:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         # Send with explicit lang — even if no de-de intent exists,
         # we verify the lang arrives at the hub
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id,
@@ -92,11 +101,11 @@ class TestSessionIdPreserved:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None
         speak_session = speak.context.get("session", {})
         assert speak_session.get("session_id") == s0.shim.session_id, (
@@ -115,13 +124,13 @@ class TestPipelineOverride:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", PADATIOUS_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
         # hello-world uses Adapt for "hello world" — padatious won't match
-        assert any(m.msg_type == "complete_intent_failure" for m in messages), (
-            f"Expected complete_intent_failure with padatious-only pipeline.\n"
+        assert any(m.msg_type == SpecMessage.INTENT_UNMATCHED for m in messages), (
+            f"Expected {SpecMessage.INTENT_UNMATCHED} with padatious-only pipeline.\n"
             f"Captured: {[m.msg_type for m in messages]}"
         )
 
@@ -137,19 +146,19 @@ class TestMultiTurnSession:
         s0 = b.get_satellite("S0")
 
         # First utterance
-        cap1 = agent.new_capture()
+        cap1 = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages1 = cap1.wait(timeout=60)
-        speak1 = next((m for m in messages1 if m.msg_type == "speak"), None)
+        speak1 = next((m for m in messages1 if m.msg_type == SpecMessage.SPEAK), None)
         assert speak1 is not None, "First utterance did not produce speak"
 
         agent.clear()
 
         # Second utterance with same session
-        cap2 = agent.new_capture()
+        cap2 = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages2 = cap2.wait(timeout=60)
-        speak2 = next((m for m in messages2 if m.msg_type == "speak"), None)
+        speak2 = next((m for m in messages2 if m.msg_type == SpecMessage.SPEAK), None)
         assert speak2 is not None, "Second utterance did not produce speak"
 
         # Both should have the same session_id

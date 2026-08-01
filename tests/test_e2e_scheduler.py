@@ -16,14 +16,22 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
-from ovos_workshop.decorators import intent_handler
+from ovos_spec_tools import SpecMessage
+from ovos_workshop.intents import IntentBuilder
 from ovos_workshop.skills import OVOSSkill
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
+    VOICE_TYPES,
     make_utterance, wait_for_satellite_message,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
@@ -38,12 +46,32 @@ SCHED_SKILL_ID = "scheduler-test-skill.test"
 
 
 class SchedulerTestSkill(OVOSSkill):
-    """Injected skill that schedules a delayed event and speaks when it fires."""
+    """Injected skill that schedules a delayed event and speaks when it fires.
+
+    Intents are registered programmatically with inline Adapt vocabulary in
+    ``initialize()``. An injected (package-less) skill has no locale/*.intent
+    files on disk, so the padatious ``@intent_handler("test.schedule.intent")``
+    form only logs ``Unable to find "test.schedule.intent"`` and never reaches
+    the pipeline — the bus handler is still registered, so the utterance is
+    accepted and then silently never matched.
+
+    The two vocabularies share no token sequence ("test schedule" vs
+    "test immediate"), so neither utterance can match both intents.
+    """
 
     def initialize(self):
         self.callback_fired = False
+        self.register_vocabulary("test schedule", "TestScheduleKeyword")
+        self.register_vocabulary("test immediate", "TestImmediateKeyword")
+        self.register_intent(
+            IntentBuilder("TestScheduleIntent").require("TestScheduleKeyword"),
+            self.handle_schedule,
+        )
+        self.register_intent(
+            IntentBuilder("TestImmediateIntent").require("TestImmediateKeyword"),
+            self.handle_immediate,
+        )
 
-    @intent_handler("test.schedule.intent")
     def handle_schedule(self, message: Message):
         self.speak("scheduling event")
         self.schedule_event(self._on_timer, 2, name="test_timer",
@@ -53,7 +81,6 @@ class SchedulerTestSkill(OVOSSkill):
         self.callback_fired = True
         self.speak("timer callback executed")
 
-    @intent_handler("test.schedule.immediate.intent")
     def handle_immediate(self, message: Message):
         """Schedule event with 0 delay — fires almost immediately."""
         self.speak("scheduling immediate")
@@ -66,26 +93,35 @@ class SchedulerTestSkill(OVOSSkill):
 @pytest.fixture(scope="module")
 def scheduler_topology():
     """MiniCroft with scheduler test skill."""
-    agent = OvoscopeAgentProtocol(
+    # MiniCroft leaves the event scheduler off by default, so
+    # schedule_event() emits mycroft.scheduler.schedule_event and nothing ever
+    # fires the callback. This module exists to test exactly that path.
+    agent = make_ovoscope_agent(
         skill_ids=[],
-        extra_skills={SCHED_SKILL_ID: SchedulerTestSkill}
+        extra_skills={SCHED_SKILL_ID: SchedulerTestSkill},
+        enable_event_scheduler=True,
     )
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SCHED_SKILL_ID}:test.schedule.intent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("Scheduler test skill not registered within 120s")
-
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        _deadline = time.monotonic() + 120
+        while time.monotonic() < _deadline:
+            if len(agent.bus.ee.listeners(f"{SCHED_SKILL_ID}:TestScheduleIntent")) > 0:
+                break
+            time.sleep(0.5)
+        else:
+            # MiniCroft is already booted — skipping without stopping it leaks
+            # the whole agent (bus, threads, skill services) into the session.
+            pytest.skip("Scheduler test skill not registered within 120s")
+
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 class TestScheduleEvent:
@@ -97,11 +133,11 @@ class TestScheduleEvent:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("test schedule", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Initial speak not emitted.\nCaptured: {[m.msg_type for m in messages]}"
         )
@@ -119,7 +155,7 @@ class TestScheduleEvent:
         callback_speak = None
         while time.monotonic() < deadline:
             for m in agent.injected:
-                if m.msg_type == "speak" and "timer callback" in m.data.get("utterance", "").lower():
+                if m.msg_type == SpecMessage.SPEAK and "timer callback" in m.data.get("utterance", "").lower():
                     callback_speak = m
                     break
             if callback_speak:
@@ -141,13 +177,13 @@ class TestScheduleImmediate:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        s0.send(make_utterance("test schedule immediate", DEFAULT_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("test immediate", DEFAULT_PIPELINE, s0.shim.session_id))
 
         deadline = time.monotonic() + 15
         callback_speak = None
         while time.monotonic() < deadline:
             for m in agent.injected:
-                if m.msg_type == "speak" and "immediate callback" in m.data.get("utterance", "").lower():
+                if m.msg_type == SpecMessage.SPEAK and "immediate callback" in m.data.get("utterance", "").lower():
                     callback_speak = m
                     break
             if callback_speak:
@@ -165,7 +201,7 @@ class TestScheduleImmediate:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        s0.send(make_utterance("test schedule immediate", DEFAULT_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("test immediate", DEFAULT_PIPELINE, s0.shim.session_id))
 
         # Wait for callback speak on satellite bus
         deadline = time.monotonic() + 15
@@ -175,7 +211,7 @@ class TestScheduleImmediate:
             time.sleep(0.5)
             # Check agent.injected for callback speak as proxy
             for m in agent.injected:
-                if m.msg_type == "speak" and "immediate callback" in m.data.get("utterance", "").lower():
+                if m.msg_type == SpecMessage.SPEAK and "immediate callback" in m.data.get("utterance", "").lower():
                     sat_speaks.append(m)
                     break
             if sat_speaks:

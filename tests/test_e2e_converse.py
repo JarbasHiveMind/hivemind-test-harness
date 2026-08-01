@@ -20,13 +20,20 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
     SKILL_PARROT,
     skill_missing, make_utterance, wait_for_satellite_message,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 DEFAULT_PIPELINE = [
     "ovos-converse-pipeline-plugin",
@@ -42,7 +49,7 @@ DEFAULT_PIPELINE = [
 @pytest.fixture(scope="module")
 def converse_topology():
     """Boot MiniCroft with parrot skill, connect one satellite."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_PARROT])
+    agent = make_ovoscope_agent(skill_ids=[SKILL_PARROT])
 
     _deadline = time.monotonic() + 120
     while time.monotonic() < _deadline:
@@ -54,13 +61,15 @@ def converse_topology():
         pytest.skip("Parrot skill intents not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"),
-                    allowed_types=["recognizer_loop:utterance"])
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                        allowed_types=["recognizer_loop:utterance"])
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 @pytest.mark.skipif(skill_missing(SKILL_PARROT), reason="ovos-skill-parrot not installed")
@@ -73,11 +82,11 @@ class TestParrotRepeat:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("say hello world", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"'speak' not emitted.\nCaptured: {[m.msg_type for m in messages]}"
         )
@@ -91,11 +100,11 @@ class TestParrotRepeat:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("say testing one two three", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=60)
 
-        msg = wait_for_satellite_message(s0, "speak", timeout=10)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "speak not forwarded to satellite"
 
 
@@ -109,11 +118,11 @@ class TestParrotMode:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("start parrot mode", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Parrot mode start did not produce speak.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -126,17 +135,17 @@ class TestParrotMode:
         s0 = b.get_satellite("S0")
 
         # Start parrot mode
-        cap1 = agent.new_capture()
+        cap1 = open_capture(agent)
         s0.send(make_utterance("start parrot mode", DEFAULT_PIPELINE, s0.shim.session_id))
         cap1.wait(timeout=60)
         agent.clear()
 
         # Now send arbitrary text — should be echoed via converse
-        cap2 = agent.new_capture()
+        cap2 = open_capture(agent)
         s0.send(make_utterance("the quick brown fox", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap2.wait(timeout=60)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Parrot mode did not echo via converse.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -149,16 +158,16 @@ class TestParrotMode:
         s0 = b.get_satellite("S0")
 
         # Start then stop
-        cap1 = agent.new_capture()
+        cap1 = open_capture(agent)
         s0.send(make_utterance("start parrot mode", DEFAULT_PIPELINE, s0.shim.session_id))
         cap1.wait(timeout=60)
         agent.clear()
 
-        cap2 = agent.new_capture()
+        cap2 = open_capture(agent)
         s0.send(make_utterance("stop parrot", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap2.wait(timeout=60)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Stop parrot did not produce speak.\n"
             f"Captured: {[m.msg_type for m in messages]}"

@@ -13,13 +13,21 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    VOICE_TYPES,
+    make_ovoscope_agent,
     SKILL_HELLO, SKILL_DATETIME, SKILL_FALLBACK,
     skill_missing, make_utterance,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
@@ -38,18 +46,20 @@ ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
 @pytest.fixture(scope="module")
 def relay_acl_agent():
     """Shared MiniCroft with multiple skills."""
-    agent = OvoscopeAgentProtocol(
+    agent = make_ovoscope_agent(
         skill_ids=[SKILL_HELLO, SKILL_DATETIME, SKILL_FALLBACK]
     )
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("Skills not registered within 120s")
-    yield agent
-    agent.shutdown()
+    try:
+        _deadline = time.monotonic() + 120
+        while time.monotonic() < _deadline:
+            if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
+                break
+            time.sleep(0.5)
+        else:
+            pytest.skip("Skills not registered within 120s")
+        yield agent
+    finally:
+        agent.shutdown()
 
 
 @pytest.fixture(scope="module")
@@ -57,27 +67,33 @@ def relay_skill_blacklist_topology(relay_acl_agent):
     """Chain: M0 ← R1(hello-world blacklisted as client of M0) ← S0.
     S0 has no extra restrictions at the R1 level."""
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=relay_acl_agent)
-    # R1 connects to M0 with hello-world blacklisted
-    _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"),
-                                skill_blacklist=[SKILL_HELLO])
-    b.add_satellite("S0", upstream=r1_master)
-    b.start_all()
-    yield b, relay_acl_agent
-    b.stop_all()
+    try:
+        b.add_master("M0", agent_protocol=relay_acl_agent)
+        # R1 connects to M0 with hello-world blacklisted
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0"),
+                                    skill_blacklist=[SKILL_HELLO]).listener
+        b.add_satellite("S0", upstream=r1_master,
+                         allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b, relay_acl_agent
+    finally:
+        b.stop_all()
 
 
 @pytest.fixture(scope="module")
 def relay_leaf_blacklist_topology(relay_acl_agent):
     """Chain: M0 ← R1(no restrictions) ← S0(date-time blacklisted at R1 level)."""
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=relay_acl_agent)
-    _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=r1_master,
-                     skill_blacklist=[SKILL_DATETIME])
-    b.start_all()
-    yield b, relay_acl_agent
-    b.stop_all()
+    try:
+        b.add_master("M0", agent_protocol=relay_acl_agent)
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        b.add_satellite("S0", upstream=r1_master,
+                         skill_blacklist=[SKILL_DATETIME],
+                         allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b, relay_acl_agent
+    finally:
+        b.stop_all()
 
 
 @pytest.mark.skipif(skill_missing(SKILL_HELLO, SKILL_DATETIME, SKILL_FALLBACK),
@@ -91,7 +107,7 @@ class TestRelayBlacklistPropagation:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
@@ -106,11 +122,11 @@ class TestRelayBlacklistPropagation:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("what time is it", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Non-blacklisted skill should work through relay.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -128,12 +144,12 @@ class TestLeafBlacklistAtRelay:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("what time is it", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
         # Date-time should be blocked for S0
-        speaks = [m for m in messages if m.msg_type == "speak"]
+        speaks = [m for m in messages if m.msg_type == SpecMessage.SPEAK]
         # Should get fallback or intent failure, not date-time response
         if speaks:
             # If there's a speak, it should be from fallback, not date-time
@@ -149,7 +165,7 @@ class TestLeafBlacklistAtRelay:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
@@ -165,9 +181,9 @@ class TestLeafBlacklistAtRelay:
 
         from tests.conftest import wait_for_satellite_message
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
-        msg = wait_for_satellite_message(s0, "speak", timeout=10)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "speak not routed through relay to leaf"

@@ -14,7 +14,11 @@ dependencies = [
     # stack transitively; the remaining bits come from the workspace editable
     # installs. 0.5.2a1 carries the loopback-whitelist + ACL re-lookup + metadata
     # repair and floors the bus-client 2.x stack, so no branch/override is needed.
-    "hivescope>=0.5.2a1",
+    # 0.6.2a1 is the floor for the 0.6.x API this harness now uses: add_relay()
+    # returns a RelayNode (relay.listener is the downstream master),
+    # MessageRecorder.snapshot(), assert_ping_responded(since=/flood_id=) and
+    # assert_policy_denied(strict=, deny_code=).
+    "hivescope>=0.6.2a1",
     # protocol v3 (Noise XXpsk2) floor for tests/test_protocol_v3_noise.py: the
     # Noise handshake, the password-strength backstop and derive-psk provisioning
     # all require this stack. Prerelease floors so pip resolves them without --pre.
@@ -42,7 +46,7 @@ dev = [
 # needs to actually match intents (ovos-adapt-parser / ovos-padatious /
 # common-query / ocp — without them MiniCroft logs "Unknown pipeline matcher").
 ovos = [
-    "hivescope[ovos]>=0.5.2a1",
+    "hivescope[ovos]>=0.6.2a1",
     "ovos-core[plugins]>=2.0.0a2",
     # the real agent backend the v3 Noise hub connects to (127.0.0.1:8181);
     # test_protocol_v3_noise boots it as a subprocess to round-trip bus messages.
@@ -63,7 +67,12 @@ plot = [
 ]
 
 [tool.pytest.ini_options]
+# Fast in-process modules finish well inside 30s. The OVOS-backed e2e modules
+# boot a MiniCroft (up to a 180s READY budget), so they raise the limit
+# themselves with a module-level ``pytest.mark.timeout``.
 timeout = 30
+# --strict-markers: an unregistered marker is a typo, not a silent no-op.
+addopts = "--strict-markers"
 markers = [
     "slow: tests that spin up large topologies (deselect with -m 'not slow')",
 ]

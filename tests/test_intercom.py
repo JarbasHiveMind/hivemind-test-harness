@@ -68,7 +68,7 @@ class TestIntercomNoEncryption:
         reason="hivemind-websocket-client#130: handle_intercom asserts "
                "message.payload.msg_type and crashes (AttributeError) on a "
                "dict/opaque INTERCOM payload instead of ignoring it.",
-        strict=False,
+        strict=True,
     )
     def test_intercom_in_broadcast_does_not_crash(self, admin_star_topology):
         """BROADCAST wrapping INTERCOM from admin satellite → master tries INTERCOM routing,

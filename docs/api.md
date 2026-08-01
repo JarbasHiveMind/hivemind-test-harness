@@ -40,7 +40,7 @@ Wraps a real `HiveMindListenerProtocol` with test plugin backends.
 | Method | Signature | Description |
 |---|---|---|
 | `create` | `(name: str, **kwargs) -> MasterNode` | Factory. Creates a fully instrumented node |
-| `register_satellite` | `(key, password=None, is_admin=False, can_escalate=True, can_propagate=True, allowed_types=None, msg_blacklist=None, skill_blacklist=None, intent_blacklist=None) -> None` | Pre-populate the database for satellite authentication |
+| `register_satellite` | `(key, password=None, is_admin=False, can_escalate=True, can_propagate=True, can_broadcast=True, allowed_types=None, msg_blacklist=None, skill_blacklist=None, intent_blacklist=None, crypto_key=None) -> None` | Pre-populate the database for satellite authentication. **`msg_blacklist` is accepted for API compatibility and ignored** — hivemind-core is whitelist-only, so admission is decided by `allowed_types` alone. `skill_blacklist` / `intent_blacklist` are a different mechanism that still works: they are stamped onto the session and enforced downstream by OVOS. See the ACL note in [03-topologies.md](03-topologies.md). |
 | `send_to_satellite` | `(peer: str, message: HiveMessage) -> None` | Send directly to a connected client |
 | `emit_on_bus` | `(message: Message) -> None` | Simulate OVOS skill emitting a response |
 | `wait_for` | `(msg_type: str, direction="in", timeout=5.0) -> RecordedMessage` | Block until message recorded |

@@ -48,7 +48,8 @@ M0
 - BROADCAST attempt from S0 (non-admin) → rejected
 - PROPAGATE from S0 → M0 forwards to S1, S2 … SN
 - INTERCOM S0 → S2 (via M0, RSA encrypted)
-- Per-satellite `msg_blacklist` — S1 blocks type X, S2 still receives it
+- Per-satellite `allowed_types` — S1 admits type X, S2 does not, and S2's
+  attempt is answered with `hive.policy.denied` (see the ACL note below)
 - Session isolation — each satellite has its own session
 
 ---
@@ -221,3 +222,20 @@ M0
 
 ---
 [← Protocol Coverage](02-protocol-coverage.md) · [Home](index.md) · [Test Scenarios →](04-test-scenarios.md)
+
+---
+
+## ACL note: whitelist-only admission
+
+hivemind-core is **whitelist-only**. A satellite is admitted for exactly the
+OVOS message types listed in its `allowed_types`; anything else is refused with
+a `hive.policy.denied` response. There is no per-satellite outbound message
+blacklist: the old `Client.message_blacklist` / `conn.msg_blacklist` field was
+removed upstream. The harness still accepts a `msg_blacklist=` keyword for API
+compatibility, and ignores it.
+
+A different, still-live mechanism shares the name: the **downstream delivery
+blacklist**. `skill_blacklist` and `intent_blacklist` are stamped onto the
+session the master hands the agent, and OVOS then refuses to run those skills
+or intents for that satellite. `tests/test_acl.py` asserts the injection;
+`tests/test_e2e_acl_skills.py` asserts the enforcement against a live MiniCroft.

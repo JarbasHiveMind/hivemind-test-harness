@@ -33,78 +33,98 @@ class TestUnimplementedTypes:
 
     def test_query_dispatches_to_handler(self):
         """TS-STUB-01 — QUERY is now handled by handle_query_message (implemented)."""
-        b = _make_topology()
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+        b = None
+        try:
+            b = _make_topology()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        inner_bus = Message("recognizer_loop:utterance",
-                            {"utterances": ["what is 2+2?"]})
-        inner = HiveMessage(HiveMessageType.BUS, payload=inner_bus)
-        msg = HiveMessage(HiveMessageType.QUERY, payload=inner,
-                          metadata={"query_id": "test-q-1",
-                                    "originator_peer": s0.peer,
-                                    "is_response": False})
-        s0.send(msg)
+            inner_bus = Message("recognizer_loop:utterance",
+                                {"utterances": ["what is 2+2?"]})
+            inner = HiveMessage(HiveMessageType.BUS, payload=inner_bus)
+            msg = HiveMessage(HiveMessageType.QUERY, payload=inner,
+                              metadata={"query_id": "test-q-1",
+                                        "originator_peer": s0.peer,
+                                        "is_response": False})
+            s0.send(msg)
 
-        m0.recorder.assert_received(HiveMessageType.QUERY, direction="in")
-        b.stop_all()
+            m0.recorder.assert_received(HiveMessageType.QUERY, direction="in")
+        finally:
+            if b is not None:
+                b.stop_all()
 
     def test_cascade_dispatches_to_handler(self):
         """TS-STUB-02 — CASCADE is now handled by handle_cascade_message (implemented)."""
-        b = _make_topology()
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+        b = None
+        try:
+            b = _make_topology()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        inner_bus = Message("recognizer_loop:utterance",
-                            {"utterances": ["what is the weather?"]})
-        inner = HiveMessage(HiveMessageType.BUS, payload=inner_bus)
-        msg = HiveMessage(HiveMessageType.CASCADE, payload=inner,
-                          metadata={"query_id": "test-c-1",
-                                    "originator_peer": s0.peer,
-                                    "is_response": False})
-        s0.send(msg)
+            inner_bus = Message("recognizer_loop:utterance",
+                                {"utterances": ["what is the weather?"]})
+            inner = HiveMessage(HiveMessageType.BUS, payload=inner_bus)
+            msg = HiveMessage(HiveMessageType.CASCADE, payload=inner,
+                              metadata={"query_id": "test-c-1",
+                                        "originator_peer": s0.peer,
+                                        "is_response": False})
+            s0.send(msg)
 
-        m0.recorder.assert_received(HiveMessageType.CASCADE, direction="in")
-        b.stop_all()
+            m0.recorder.assert_received(HiveMessageType.CASCADE, direction="in")
+        finally:
+            if b is not None:
+                b.stop_all()
 
     def test_ping_does_not_crash(self):
         """TS-STUB-03 — PING falls to handle_unknown_message (empty stub).
         TODO: implement PING handler (latency/alive check)."""
-        b = _make_topology()
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+        b = None
+        try:
+            b = _make_topology()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        msg = HiveMessage(HiveMessageType.PING, payload={})
-        s0.send(msg)
+            msg = HiveMessage(HiveMessageType.PING, payload={})
+            s0.send(msg)
 
-        m0.recorder.assert_received(HiveMessageType.PING, direction="in")
-        b.stop_all()
+            m0.recorder.assert_received(HiveMessageType.PING, direction="in")
+        finally:
+            if b is not None:
+                b.stop_all()
 
     def test_rendezvous_does_not_crash(self):
         """TS-STUB-04 — RENDEZVOUS falls to handle_unknown_message (empty stub).
         TODO: implement RENDEZVOUS handler (peer discovery / hole-punching)."""
-        b = _make_topology()
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+        b = None
+        try:
+            b = _make_topology()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        msg = HiveMessage(HiveMessageType.RENDEZVOUS,
-                          payload={"peer": "some-peer-id"})
-        s0.send(msg)
+            msg = HiveMessage(HiveMessageType.RENDEZVOUS,
+                              payload={"peer": "some-peer-id"})
+            s0.send(msg)
 
-        m0.recorder.assert_received(HiveMessageType.RENDEZVOUS, direction="in")
-        b.stop_all()
+            m0.recorder.assert_received(HiveMessageType.RENDEZVOUS, direction="in")
+        finally:
+            if b is not None:
+                b.stop_all()
 
     def test_thirdprty_toplevel_does_not_crash(self):
         """TS-STUB-05 — THIRDPRTY as a top-level message falls to handle_unknown_message.
         THIRDPRTY is typically used as an inner payload inside PROPAGATE/ESCALATE,
         but is also a valid standalone message type."""
-        b = _make_topology()
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+        b = None
+        try:
+            b = _make_topology()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        msg = HiveMessage(HiveMessageType.THIRDPRTY,
-                          payload={"vendor": "acme", "data": "custom payload"})
-        s0.send(msg)
+            msg = HiveMessage(HiveMessageType.THIRDPRTY,
+                              payload={"vendor": "acme", "data": "custom payload"})
+            s0.send(msg)
 
-        m0.recorder.assert_received(HiveMessageType.THIRDPRTY, direction="in")
-        b.stop_all()
+            m0.recorder.assert_received(HiveMessageType.THIRDPRTY, direction="in")
+        finally:
+            if b is not None:
+                b.stop_all()

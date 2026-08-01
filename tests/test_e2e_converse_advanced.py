@@ -16,15 +16,23 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
-from ovos_workshop.decorators import intent_handler
+from ovos_spec_tools import SpecMessage
+from ovos_workshop.intents import IntentBuilder
 from ovos_workshop.skills import OVOSSkill
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
+    VOICE_TYPES,
     SKILL_RANDOMNESS, SKILL_DICTATION,
     skill_missing, make_utterance, wait_for_satellite_message,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 CONVERSE_PIPELINE = [
     "ovos-converse-pipeline-plugin",
@@ -41,12 +49,24 @@ TIMEOUT_SKILL_ID = "timeout-test-skill.test"
 
 
 class TimeoutTestSkill(OVOSSkill):
-    """Skill that calls get_response and tracks whether it got an answer or timed out."""
+    """Skill that calls get_response and tracks whether it got an answer or timed out.
+
+    The intent is registered programmatically with inline Adapt vocabulary. An
+    injected (package-less) skill has no locale/*.intent files on disk, so the
+    padatious ``@intent_handler("test.timeout.intent")`` form only logs
+    ``Unable to find "test.timeout.intent"`` and never reaches the pipeline —
+    the bus handler is still registered, so the utterance is accepted and then
+    never matched.
+    """
 
     def initialize(self):
         self.last_result = None
+        self.register_vocabulary("test timeout", "TestTimeoutKeyword")
+        self.register_intent(
+            IntentBuilder("TestTimeoutIntent").require("TestTimeoutKeyword"),
+            self.handle_timeout_test,
+        )
 
-    @intent_handler("test.timeout.intent")
     def handle_timeout_test(self, message: Message):
         response = self.get_response("say something", num_retries=0)
         self.last_result = response
@@ -65,7 +85,7 @@ class SatelliteAutoResponder:
         self.responses = list(responses)
         self.speaks_received = []
         self._lock = threading.Lock()
-        satellite.internal_bus.on("speak", self._on_speak)
+        satellite.internal_bus.on(SpecMessage.SPEAK, self._on_speak)
 
     def _on_speak(self, msg):
         with self._lock:
@@ -80,7 +100,7 @@ class SatelliteAutoResponder:
         ))
 
     def shutdown(self):
-        self.satellite.internal_bus.remove_all_listeners("speak")
+        self.satellite.internal_bus.remove_all_listeners(SpecMessage.SPEAK)
 
 
 # ---------------------------------------------------------------------------
@@ -95,30 +115,34 @@ def cancel_topology():
     if not skill_missing(SKILL_RANDOMNESS):
         skill_ids.append(SKILL_RANDOMNESS)
 
-    agent = OvoscopeAgentProtocol(skill_ids=skill_ids, extra_skills=extra)
+    agent = make_ovoscope_agent(skill_ids=skill_ids, extra_skills=extra)
 
     _deadline = time.monotonic() + 120
     while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{TIMEOUT_SKILL_ID}:test.timeout.intent")) > 0:
+        if len(agent.bus.ee.listeners(f"{TIMEOUT_SKILL_ID}:TestTimeoutIntent")) > 0:
             break
         time.sleep(0.5)
     else:
         pytest.skip("Test skills not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
-    b.add_satellite("S1", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
+        b.add_satellite("S1", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 @pytest.fixture(scope="module")
 def dictation_topology():
     """MiniCroft with dictation skill."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_DICTATION])
+    agent = make_ovoscope_agent(skill_ids=[SKILL_DICTATION])
 
     _deadline = time.monotonic() + 120
     while time.monotonic() < _deadline:
@@ -129,12 +153,15 @@ def dictation_topology():
         pytest.skip("Dictation skill not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -192,10 +219,19 @@ class TestCancelMidDialog:
 
         # Now send a normal utterance — should still work
         agent.clear()
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("test timeout", CONVERSE_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=20)
-        # Just verify no crash — test passes if we get here
+        cap.assert_complete()
+        assert messages, "no bus activity after the cancelled dialog"
+        types = [m.msg_type for m in messages]
+        assert "recognizer_loop:utterance" in types, (
+            f"the follow-up utterance never reached the skill side. Captured: {types}"
+        )
+        assert any(t in (SpecMessage.SPEAK, "ovos.utterance.handled") for t in types), (
+            "the pipeline must still answer after a cancelled get_response.\n"
+            f"Captured: {types}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +255,7 @@ class TestGetResponseTimeout:
         result = None
         while time.monotonic() < deadline:
             for m in agent.injected:
-                if m.msg_type == "speak" and "timed out" in m.data.get("utterance", "").lower():
+                if m.msg_type == SpecMessage.SPEAK and "timed out" in m.data.get("utterance", "").lower():
                     result = m
                     break
             if result:
@@ -251,8 +287,8 @@ class TestConcurrentGetResponse:
         s0_evt = threading.Event()
         s1_evt = threading.Event()
 
-        s0.internal_bus.on("speak", lambda m: (s0_speaks.append(m), s0_evt.set()))
-        s1.internal_bus.on("speak", lambda m: (s1_speaks.append(m), s1_evt.set()))
+        s0.internal_bus.on(SpecMessage.SPEAK, lambda m: (s0_speaks.append(m), s0_evt.set()))
+        s1.internal_bus.on(SpecMessage.SPEAK, lambda m: (s1_speaks.append(m), s1_evt.set()))
 
         # Both satellites trigger get_response skill
         s0.send(make_utterance("test timeout", CONVERSE_PIPELINE, s0.shim.session_id))
@@ -280,13 +316,13 @@ class TestDictation:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("start dictation", CONVERSE_PIPELINE,
                                 s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
         # Should get a speak confirming dictation started
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Dictation start did not speak.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -299,14 +335,14 @@ class TestDictation:
         s0 = b.get_satellite("S0")
 
         # Start dictation
-        cap1 = agent.new_capture()
+        cap1 = open_capture(agent)
         s0.send(make_utterance("start dictation", CONVERSE_PIPELINE,
                                 s0.shim.session_id))
         cap1.wait(timeout=15)
         agent.clear()
 
         # Send text that would normally trigger an intent
-        cap2 = agent.new_capture(
+        cap2 = open_capture(agent, 
             eof_msgs=["ovos.utterance.handled", "ovos.session.update"]
         )
         s0.send(make_utterance("hello world", CONVERSE_PIPELINE,
@@ -327,18 +363,18 @@ class TestDictation:
         s0 = b.get_satellite("S0")
 
         # Start then stop
-        cap1 = agent.new_capture()
+        cap1 = open_capture(agent)
         s0.send(make_utterance("start dictation", CONVERSE_PIPELINE,
                                 s0.shim.session_id))
         cap1.wait(timeout=15)
         agent.clear()
 
-        cap2 = agent.new_capture()
+        cap2 = open_capture(agent)
         s0.send(make_utterance("stop dictation", CONVERSE_PIPELINE,
                                 s0.shim.session_id))
         messages = cap2.wait(timeout=15)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Stop dictation did not speak.\n"
             f"Captured: {[m.msg_type for m in messages]}"

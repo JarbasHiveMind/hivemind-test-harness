@@ -19,14 +19,21 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
     SKILL_HELLO, SKILL_VOLUME,
     skill_missing, make_utterance, assert_types_in_order,
     wait_for_satellite_message,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
 DEFAULT_PIPELINE = [
@@ -56,7 +63,7 @@ _RELAY_ROUTING_UNSUPPORTED = (
 @pytest.fixture(scope="module")
 def relay_topology():
     """Chain: M0(MiniCroft) ← R1(relay) ← S0(satellite)."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_HELLO, SKILL_VOLUME])
+    agent = make_ovoscope_agent(skill_ids=[SKILL_HELLO, SKILL_VOLUME])
 
     # Install volume.get responder
     agent.bus.on("mycroft.volume.get",
@@ -72,20 +79,22 @@ def relay_topology():
         pytest.skip("HelloWorldIntent not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    b.add_satellite("S0", upstream=r1_master,
-                    allowed_types=["recognizer_loop:utterance"])
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        b.add_satellite("S0", upstream=r1_master,
+                        allowed_types=["recognizer_loop:utterance"])
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 @pytest.fixture(scope="module")
 def deep_relay_topology():
     """Deep chain: M0(MiniCroft) ← R1 ← R2 ← S0."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_HELLO])
+    agent = make_ovoscope_agent(skill_ids=[SKILL_HELLO])
 
     _deadline = time.monotonic() + 120
     while time.monotonic() < _deadline:
@@ -96,15 +105,17 @@ def deep_relay_topology():
         pytest.skip("HelloWorldIntent not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    _, r1_master = b.add_relay("R1", upstream=b.get_master("M0"))
-    _, r2_master = b.add_relay("R2", upstream=r1_master)
-    b.add_satellite("S0", upstream=r2_master,
-                    allowed_types=["recognizer_loop:utterance"])
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        r2_master = b.add_relay("R2", upstream=r1_master).listener
+        b.add_satellite("S0", upstream=r2_master,
+                        allowed_types=["recognizer_loop:utterance"])
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 @pytest.mark.skip(reason=_RELAY_ROUTING_UNSUPPORTED)
@@ -118,11 +129,11 @@ class TestRelayUtterance:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"'speak' not emitted.\nCaptured: {[m.msg_type for m in messages]}"
         )
@@ -133,11 +144,11 @@ class TestRelayUtterance:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=60)
 
-        msg = wait_for_satellite_message(s0, "speak", timeout=10)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "speak not forwarded through relay to satellite"
         assert msg.data.get("utterance", "").lower() == "hello world"
 
@@ -153,11 +164,11 @@ class TestDeepChain:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"'speak' not emitted in deep chain.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -184,7 +195,7 @@ class TestVolumeRelay:
 
         s0.internal_bus.once("mycroft.volume.set", _on_vol)
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("maximum volume", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=60)
 
@@ -198,16 +209,16 @@ class TestIntentFailureRelay:
     """TS-RL-05 — intent failure through relay."""
 
     def test_intent_failure_through_relay(self, relay_topology):
-        """TS-RL-05 — unmatched utterance produces complete_intent_failure."""
+        """TS-RL-05 — unmatched utterance produces ovos.intent.unmatched."""
         b, agent = relay_topology
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("xyzzy gibberish", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
-        assert any(m.msg_type == "complete_intent_failure" for m in messages), (
-            f"complete_intent_failure not emitted.\n"
+        assert any(m.msg_type == SpecMessage.INTENT_UNMATCHED for m in messages), (
+            f"{SpecMessage.INTENT_UNMATCHED} not emitted.\n"
             f"Captured: {[m.msg_type for m in messages]}"
         )

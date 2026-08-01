@@ -379,12 +379,12 @@ See `02-protocol-coverage.md` for the complete file listing.
 
 - **Protocol rules** (`test_protocol_rules.py`, 14 tests): protocol invariant validation
 - **Protocol fixes** (`test_protocol_fixes.py`, 8 tests): regression tests for bugs fixed upstream
-- **Embedded clients** (`test_embedded_*.py`, 37 tests): ESP32/MicroPython client compatibility
-- **Voice PE** (`test_voice_pe_*.py`, 31 tests): Voice PE protocol and satellite integration
+- **Embedded clients** (`test_embedded_*.py`, 64 tests): ESP32/MicroPython client compatibility
+- **Voice PE** (`test_voice_pe_protocol.py`, 18 tests): Voice PE protocol message handling
 - **All topologies** (`test_all_topologies.py`, 27 tests): cross-topology protocol validation
 - **Ovoscope integration** (`test_ovoscope_integration.py`, 9 tests): real IntentService roundtrip
 - **HelloWorld** (`test_helloworld_hivemind.py`, 15 tests): full utterance→skill→speak via ovoscope
-- **Utterance flow** (`test_utterance_flow.py`, 6 tests): end-to-end utterance processing
+- **Utterance flow** (the `test_e2e_*.py` suite, 120 tests): end-to-end utterance processing against a live MiniCroft
 - **Solver harness** (`test_solver_harness.py`, 5 tests): solver plugin integration
 - **Topology plots** (`test_topology_plots.py`, 12 tests): topology visualization
 

@@ -26,7 +26,7 @@ from typing import Optional, List
 import pytest
 
 # Import MicroPython client (from parent workspace)
-def _find_mp_client_root() -> Path:
+def _find_mp_client_root():
     """Locate the hivemind-micropython-client checkout.
 
     Honours ``HIVEMIND_MICROPYTHON_CLIENT`` if set, otherwise searches the
@@ -45,12 +45,21 @@ def _find_mp_client_root() -> Path:
     for cand in candidates:
         if (cand / "hivemind" / "client.py").exists():
             return cand
-    return candidates[0]
+    return None
 
 
 _MP_CLIENT_ROOT = _find_mp_client_root()
-if str(_MP_CLIENT_ROOT) not in sys.path:
+if _MP_CLIENT_ROOT is not None and str(_MP_CLIENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_MP_CLIENT_ROOT))
+
+# The MicroPython client lives in a separate (currently private) repo. Without a
+# checkout the module is absent, so skip the whole file instead of failing
+# collection for every test in the run.
+pytest.importorskip(
+    "hivemind.client",
+    reason="hivemind-micropython-client checkout not found; set "
+           "HIVEMIND_MICROPYTHON_CLIENT to its path",
+)
 
 from hivemind.client import (
     HiveMindClient,
@@ -61,7 +70,6 @@ from hivemind.binary import BIN_RAW_AUDIO, MSG_BINARY
 from hivemind.crypto import _norm_cipher
 
 # Import test harness
-from hivescope.topology import TopologyBuilder
 from ovos_bus_client.message import Message
 
 
@@ -140,14 +148,6 @@ class MicroPythonClientAdapter:
         received_types = [m.msg_type for m in self.messages_received]
         assert msg_type not in received_types, \
             f"Unexpected {msg_type} in: {received_types}"
-
-
-@pytest.fixture
-def topology():
-    """Provide a basic master-satellite topology."""
-    tb = TopologyBuilder()
-    master = tb.add_master("M0")
-    return tb
 
 
 class TestMicroPythonClientHandshake:

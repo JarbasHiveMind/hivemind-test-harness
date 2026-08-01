@@ -17,14 +17,22 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
+    VOICE_TYPES,
     SKILL_HELLO,
     skill_missing, make_utterance, wait_for_satellite_message,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
 
@@ -32,7 +40,7 @@ ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
 @pytest.fixture(scope="module")
 def shared_bus_topology():
     """M0 with hello-world + S0(shared_bus=True) + S1(normal)."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_HELLO])
+    agent = make_ovoscope_agent(skill_ids=[SKILL_HELLO])
 
     _deadline = time.monotonic() + 120
     while time.monotonic() < _deadline:
@@ -43,13 +51,17 @@ def shared_bus_topology():
         pytest.skip("HelloWorldIntent not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True)
-    b.add_satellite("S1", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True,
+                         allowed_types=VOICE_TYPES)
+        b.add_satellite("S1", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 @pytest.mark.skipif(skill_missing(SKILL_HELLO), reason="ovos-skill-hello-world not installed")
@@ -110,7 +122,7 @@ class TestSharedBusWithSkills:
         m0 = b.get_master("M0")
         m0.recorder.clear()
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
@@ -132,9 +144,9 @@ class TestSharedBusWithSkills:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, "Skill should still work with shared_bus satellite"

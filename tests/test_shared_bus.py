@@ -20,79 +20,87 @@ class TestSharedBus:
     def test_shared_bus_callback_fires(self):
         """When satellite emits on internal bus, master's shared_bus_callback fires."""
         b = TopologyBuilder()
-        b.add_master("M0")
-        b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True)
-        b.start_all()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True)
+            b.start_all()
 
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        shared_bus_calls = []
-        m0.hm_protocol.shared_bus_callback = shared_bus_calls.append
+            shared_bus_calls = []
+            m0.hm_protocol.shared_bus_callback = shared_bus_calls.append
 
-        # Emit directly on the satellite's internal bus
-        s0.internal_bus.emit(Message("speak", {"utterance": "hello"}))
+            # Emit directly on the satellite's internal bus
+            s0.internal_bus.emit(Message("speak", {"utterance": "hello"}))
 
-        assert len(shared_bus_calls) == 1, \
-            "shared_bus_callback should fire once for each internal bus emission"
-        b.stop_all()
+            assert len(shared_bus_calls) == 1, \
+                "shared_bus_callback should fire once for each internal bus emission"
+        finally:
+            b.stop_all()
 
     def test_shared_bus_payload_is_message(self):
         """The payload received by shared_bus_callback is the OVOS Message."""
         b = TopologyBuilder()
-        b.add_master("M0")
-        b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True)
-        b.start_all()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True)
+            b.start_all()
 
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        received = []
-        m0.hm_protocol.shared_bus_callback = received.append
+            received = []
+            m0.hm_protocol.shared_bus_callback = received.append
 
-        s0.internal_bus.emit(Message("speak", {"utterance": "monitor me"}))
+            s0.internal_bus.emit(Message("speak", {"utterance": "monitor me"}))
 
-        assert len(received) == 1
-        msg = received[0]
-        # shared_bus_callback receives message.payload (a Message / dict)
-        assert msg is not None
-        b.stop_all()
+            assert len(received) == 1
+            msg = received[0]
+            # shared_bus_callback receives message.payload (a Message / dict)
+            assert msg is not None
+        finally:
+            b.stop_all()
 
     def test_shared_bus_disabled_by_default(self):
         """TS-SHARED-02 — satellite without shared_bus=True does NOT trigger callback."""
         b = TopologyBuilder()
-        b.add_master("M0")
-        b.add_satellite("S0", upstream=b.get_master("M0"))  # shared_bus=False default
-        b.start_all()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"))  # shared_bus=False default
+            b.start_all()
 
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        shared_bus_calls = []
-        m0.hm_protocol.shared_bus_callback = shared_bus_calls.append
+            shared_bus_calls = []
+            m0.hm_protocol.shared_bus_callback = shared_bus_calls.append
 
-        s0.internal_bus.emit(Message("speak", {"utterance": "should not forward"}))
+            s0.internal_bus.emit(Message("speak", {"utterance": "should not forward"}))
 
-        assert len(shared_bus_calls) == 0, \
-            "shared_bus_callback must not fire when shared_bus is disabled"
-        b.stop_all()
+            assert len(shared_bus_calls) == 0, \
+                "shared_bus_callback must not fire when shared_bus is disabled"
+        finally:
+            b.stop_all()
 
     def test_shared_bus_multiple_events(self):
         """Each internal bus emission fires the callback exactly once."""
         b = TopologyBuilder()
-        b.add_master("M0")
-        b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True)
-        b.start_all()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"), shared_bus=True)
+            b.start_all()
 
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
 
-        shared_bus_calls = []
-        m0.hm_protocol.shared_bus_callback = shared_bus_calls.append
+            shared_bus_calls = []
+            m0.hm_protocol.shared_bus_callback = shared_bus_calls.append
 
-        for i in range(3):
-            s0.internal_bus.emit(Message("test.event", {"seq": i}))
+            for i in range(3):
+                s0.internal_bus.emit(Message("test.event", {"seq": i}))
 
-        assert len(shared_bus_calls) == 3, \
-            "Each bus emission should fire shared_bus_callback once"
-        b.stop_all()
+            assert len(shared_bus_calls) == 3, \
+                "Each bus emission should fire shared_bus_callback once"
+        finally:
+            b.stop_all()

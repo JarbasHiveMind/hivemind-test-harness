@@ -276,19 +276,21 @@ class TestSpeakSynth:
         """speak:synth requires explicit allowed_types since it's non-standard."""
         from hivescope.topology import TopologyBuilder
         b = TopologyBuilder()
-        b.add_master("M0")
-        b.add_satellite("S0", upstream=b.get_master("M0"),
-                         allowed_types=["recognizer_loop:utterance",
-                                         "recognizer_loop:record_begin",
-                                         "recognizer_loop:record_end",
-                                         "recognizer_loop:b64_transcribe",
-                                         "speak:synth", "speak:b64_audio"])
-        b.start_all()
-        s0 = b.get_satellite("S0")
-        m0 = b.get_master("M0")
-        s0.send(Message("speak:synth", {"utterance": "test", "lang": "en-us"}))
-        m0.agent_protocol.assert_injected("speak:synth")
-        b.stop_all()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"),
+                             allowed_types=["recognizer_loop:utterance",
+                                             "recognizer_loop:record_begin",
+                                             "recognizer_loop:record_end",
+                                             "recognizer_loop:b64_transcribe",
+                                             "speak:synth", "speak:b64_audio"])
+            b.start_all()
+            s0 = b.get_satellite("S0")
+            m0 = b.get_master("M0")
+            s0.send(Message("speak:synth", {"utterance": "test", "lang": "en-us"}))
+            m0.agent_protocol.assert_injected("speak:synth")
+        finally:
+            b.stop_all()
 
 
 # ═══════════════════════════════════════════════════════════════════

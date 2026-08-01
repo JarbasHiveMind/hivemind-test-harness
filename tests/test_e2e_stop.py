@@ -28,13 +28,20 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
     SKILL_COUNT, SKILL_HELLO,
     skill_missing, make_utterance, wait_for_satellite_message,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 # Pipeline with stop support
 STOP_PIPELINE = [
@@ -52,7 +59,7 @@ STOP_PIPELINE = [
 @pytest.fixture(scope="module")
 def stop_topology():
     """Boot MiniCroft with count + hello-world skills."""
-    agent = OvoscopeAgentProtocol(skill_ids=[SKILL_COUNT, SKILL_HELLO])
+    agent = make_ovoscope_agent(skill_ids=[SKILL_COUNT, SKILL_HELLO])
 
     _deadline = time.monotonic() + 120
     while time.monotonic() < _deadline:
@@ -63,13 +70,15 @@ def stop_topology():
         pytest.skip("Count skill intents not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"),
-                    allowed_types=["recognizer_loop:utterance"])
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                        allowed_types=["recognizer_loop:utterance"])
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -90,8 +99,8 @@ class TestCountBasic:
         s0.send(make_utterance("count to five", STOP_PIPELINE, s0.shim.session_id))
 
         # Wait for at least one speak within 10s
-        agent.wait_for_skill_emission("speak", count=1, timeout=10)
-        speaks = agent.skill_messages("speak")
+        agent.wait_for_skill_emission(SpecMessage.SPEAK, count=1, timeout=10)
+        speaks = agent.skill_messages(SpecMessage.SPEAK)
         assert len(speaks) >= 1, "Count skill did not start speaking"
 
     def test_count_produces_multiple_speaks(self, stop_topology):
@@ -104,7 +113,7 @@ class TestCountBasic:
 
         # Wait for handler.complete (counting finished) -- up to 15s
         agent.wait_for_skill_emission("mycroft.skill.handler.complete", timeout=15)
-        speaks = agent.skill_messages("speak")
+        speaks = agent.skill_messages(SpecMessage.SPEAK)
         assert len(speaks) >= 3, (
             f"Expected >=3 speaks for 'count to three', got {len(speaks)}.\n"
             f"Speaks: {[s.data.get('utterance', '') for s in speaks]}"
@@ -129,7 +138,7 @@ class TestStopActiveCount:
         s0.send(make_utterance("count to ten", STOP_PIPELINE, s0.shim.session_id))
 
         # Wait for counting to start (at least 1 speak)
-        agent.wait_for_skill_emission("speak", count=1, timeout=10)
+        agent.wait_for_skill_emission(SpecMessage.SPEAK, count=1, timeout=10)
 
         # Send stop while counting is still active
         time.sleep(1)  # Let a couple numbers count
@@ -140,7 +149,7 @@ class TestStopActiveCount:
         time.sleep(5)
 
         # Count the total speaks -- should be less than 10
-        all_speaks = [m for m in agent.injected if m.msg_type == "speak"]
+        all_speaks = [m for m in agent.injected if m.msg_type == SpecMessage.SPEAK]
         # We can't assert exact count, but counting should have stopped
         # The test passes if it completes without hanging
 
@@ -152,7 +161,7 @@ class TestStopActiveCount:
 
         # Start counting
         s0.send(make_utterance("count to ten", STOP_PIPELINE, s0.shim.session_id))
-        agent.wait_for_skill_emission("speak", count=1, timeout=10)
+        agent.wait_for_skill_emission(SpecMessage.SPEAK, count=1, timeout=10)
 
         # Collect all messages during stop
         time.sleep(1)
@@ -177,7 +186,7 @@ class TestStopActiveCount:
 
         s0.send(make_utterance("count to three", STOP_PIPELINE, s0.shim.session_id))
 
-        msg = wait_for_satellite_message(s0, "speak", timeout=10)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "Count speak not forwarded to satellite"
 
 
@@ -223,7 +232,7 @@ class TestStopAfterQuickSkill:
         s0 = b.get_satellite("S0")
 
         # First trigger hello world (completes instantly)
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("hello world", STOP_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 

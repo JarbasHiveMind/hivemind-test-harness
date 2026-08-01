@@ -17,14 +17,22 @@ import time
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_spec_tools import SpecMessage
 
-from hivescope.plugins.ovoscope_agent import OvoscopeAgentProtocol
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    open_capture,
+    make_ovoscope_agent,
+    VOICE_TYPES,
     SKILL_HELLO, SKILL_IP, SKILL_COUNT,
     skill_missing, make_utterance, assert_types_in_order,
     wait_for_satellite_message,
 )
+
+# MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
+# handlers run serially after that, so the repo-wide 30s default is far too
+# tight for this module.
+pytestmark = pytest.mark.timeout(300)
 
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
@@ -45,7 +53,7 @@ ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
 def misc_topology():
     """Boot MiniCroft with IP, count, and hello-world skills."""
     skills = [SKILL_IP, SKILL_COUNT, SKILL_HELLO]
-    agent = OvoscopeAgentProtocol(skill_ids=skills)
+    agent = make_ovoscope_agent(skill_ids=skills)
 
     _deadline = time.monotonic() + 120
     while time.monotonic() < _deadline:
@@ -56,12 +64,15 @@ def misc_topology():
         pytest.skip("Skills not registered within 120s")
 
     b = TopologyBuilder()
-    b.add_master("M0", agent_protocol=agent)
-    b.add_satellite("S0", upstream=b.get_master("M0"))
-    b.start_all()
-    yield b, agent
-    b.stop_all()
-    agent.shutdown()
+    try:
+        b.add_master("M0", agent_protocol=agent)
+        b.add_satellite("S0", upstream=b.get_master("M0"),
+                         allowed_types=VOICE_TYPES)
+        b.start_all()
+        yield b, agent
+    finally:
+        b.stop_all()
+        agent.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -78,11 +89,11 @@ class TestIPSkill:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("what is your ip address", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"'speak' not emitted for IP query.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -94,11 +105,11 @@ class TestIPSkill:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(make_utterance("what is your ip address", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
-        msg = wait_for_satellite_message(s0, "speak", timeout=10)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "IP speak not forwarded to satellite"
 
 
@@ -116,13 +127,13 @@ class TestCountSkill:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture(
+        cap = open_capture(agent, 
             eof_msgs=["ovos.utterance.handled", "mycroft.skill.handler.complete"]
         )
         s0.send(make_utterance("count to three", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=20)
 
-        speaks = [m for m in messages if m.msg_type == "speak"]
+        speaks = [m for m in messages if m.msg_type == SpecMessage.SPEAK]
         assert len(speaks) >= 1, (
             f"Expected speaks for counting.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -134,13 +145,13 @@ class TestCountSkill:
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        cap = agent.new_capture(
+        cap = open_capture(agent, 
             eof_msgs=["ovos.utterance.handled", "mycroft.skill.handler.complete"]
         )
         s0.send(make_utterance("count to three", DEFAULT_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=20)
 
-        msg = wait_for_satellite_message(s0, "speak", timeout=10)
+        msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "Count speak not forwarded to satellite"
 
 
@@ -167,11 +178,28 @@ class TestEdgeCases:
             {"session": sess.serialize()},
         )
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(msg)
         messages = cap.wait(timeout=10)
-        # Should not crash — may produce intent failure or be silently ignored
-        # Just verify no exception occurred (test completes)
+
+        # The empty utterance itself may be answered or silently dropped — both
+        # are graceful. What must hold is that it reached the agent through
+        # HiveMind, and that it did not wedge the pipeline for the next one.
+        injected = [m.msg_type for m in agent.injected]
+        assert "recognizer_loop:utterance" in injected, (
+            f"empty utterance never reached the agent bus. Injected: {injected}\n"
+            f"Captured: {[m.msg_type for m in messages]}"
+        )
+
+        agent.clear()
+        cap = open_capture(agent)
+        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
+        follow_up = cap.wait(timeout=15)
+        cap.assert_complete()
+        assert any(m.msg_type == SpecMessage.SPEAK for m in follow_up), (
+            "pipeline must still answer a normal utterance after an empty one.\n"
+            f"Captured: {[m.msg_type for m in follow_up]}"
+        )
 
     def test_multiple_utterance_candidates(self, misc_topology):
         """TS-MI-06 — multiple STT candidates in utterances list."""
@@ -188,12 +216,12 @@ class TestEdgeCases:
             {"session": sess.serialize()},
         )
 
-        cap = agent.new_capture()
+        cap = open_capture(agent)
         s0.send(msg)
         messages = cap.wait(timeout=15)
 
         # First candidate should match
-        speak = next((m for m in messages if m.msg_type == "speak"), None)
+        speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None, (
             f"Multiple candidates: first should match.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -212,7 +240,7 @@ class TestEdgeCases:
         # Wait for processing
         time.sleep(5)
         # Just verify no crash — at least one speak should appear
-        speaks = [m for m in agent.injected if m.msg_type == "speak"]
+        speaks = [m for m in agent.injected if m.msg_type == SpecMessage.SPEAK]
         assert len(speaks) >= 1, "Rapid utterances: expected at least one speak"
 
     def test_unknown_message_type_ignored(self, misc_topology):

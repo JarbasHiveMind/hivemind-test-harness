@@ -61,7 +61,21 @@ Yes. The relay's satellite side receives `PROPAGATE(PING)`, emits `hive.send.dow
 All 9 implemented types: BUS, BROADCAST, ESCALATE, PROPAGATE, INTERCOM, SHARED_BUS, HELLO, GOODBYE, BINARY.
 
 ### Is binarize mode tested?
-Yes. `test_binarize_e2e.py` (7 tests) covers handshake negotiation (both enabled/disabled), BUS message downstream roundtrip, and BINARY payload downstream through the bitstring encode/decode path. Patch `get_server_config` to return `binarize: True`. Note: upstream (satellite-to-master) bypasses serialization in the in-process shim, so binarize encoding is only exercised on the downstream path.
+No. This is a known coverage gap. Nothing under `tests/` exercises the binarize
+(bitstring) encoding path — `grep -r binarize tests/` returns nothing. An
+earlier version of this FAQ pointed at `test_binarize_e2e.py`, a file that does
+not exist in this repo.
+
+What IS covered: `tests/test_binary.py` covers all seven
+`HiveMindBinaryPayloadType` values over the normal JSON encoding, and
+`tests/test_e2e_binary_skill.py` covers a binary payload reaching an OVOS skill.
+Neither negotiates `binarize: True`.
+
+Closing the gap needs a test that patches `get_server_config` to advertise
+`binarize: True`, then asserts a BUS message and a BINARY payload round-trip
+downstream through the bitstring encode/decode path. Note that upstream
+(satellite-to-master) bypasses serialization in the in-process shim, so only
+the downstream direction can be exercised in-process.
 
 ### Which types are NOT yet implemented in hivemind-core?
 QUERY, CASCADE, RENDEZVOUS. Stub tests in `test_unimplemented_types.py` verify they raise `NotImplementedError`.
