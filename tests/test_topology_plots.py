@@ -31,20 +31,9 @@ from hivescope.topology_plot import (
     plot_topology_and_discovery,
 )
 
-# Upstream bug, surfaced the moment the discovery plots stopped drawing an
-# empty hive: hivescope.topology_plot.plot_hive_mapper reads ``info.rtt_ms``,
-# but hivemind_bus_client.hive_map.NodeInfo has no such field (peer, site_id,
-# timestamp, received_at, public_key, lang, trusted). Every discovery plot of a
-# NON-empty mapper therefore raises AttributeError. Same missing field as the
-# xfail in tests/test_ping_pong.py; tracked in hivemind-test-harness#6.
-_MAPPER_RTT_BUG = pytest.mark.xfail(
-    reason="hivescope.topology_plot.plot_hive_mapper reads NodeInfo.rtt_ms, "
-           "which hivemind_bus_client.hive_map.NodeInfo does not define — "
-           "any non-empty discovery plot raises AttributeError "
-           "(hivemind-test-harness#6)",
-    strict=True,
-    raises=AttributeError,
-)
+# hivescope#46 fixed plot_hive_mapper to read NodeInfo.latency_ms (rtt_ms
+# never existed); the strict xfail that used to sit here XPASS-failed the
+# moment the fix released — these are plain regression tests now.
 
 @pytest.fixture
 def img_dir(tmp_path):
@@ -123,7 +112,6 @@ class TestPlotMinimalTopology:
         finally:
             b.stop_all()
 
-    @_MAPPER_RTT_BUG
     def test_discovery_plot_written(self, img_dir):
         b = TopologyBuilder()
         b.add_master("M0")
@@ -147,7 +135,6 @@ class TestPlotMinimalTopology:
 class TestPlotStarTopology:
     """TS-PLOT-02 — 1 master, 3 satellites."""
 
-    @_MAPPER_RTT_BUG
     def test_static_and_discovery_written(self, img_dir):
         b = TopologyBuilder()
         b.add_master("M0")
@@ -189,7 +176,6 @@ class TestPlotChainTopology:
         finally:
             b.stop_all()
 
-    @_MAPPER_RTT_BUG
     def test_m0_discovery_written(self, img_dir):
         b = TopologyBuilder()
         b.add_master("M0")
@@ -250,7 +236,6 @@ class TestPlotHugeHive:
         _assert_png(path)
 
     @pytest.mark.slow
-    @_MAPPER_RTT_BUG
     def test_discovery_written(self, huge_hive_topology, img_dir):
         b = huge_hive_topology
         m0 = b.get_master("M0")
@@ -278,7 +263,6 @@ class TestPlotChaoticHive:
         _assert_png(path)
 
     @pytest.mark.slow
-    @_MAPPER_RTT_BUG
     def test_m0_discovery_written(self, chaotic_hive_topology, img_dir):
         b = chaotic_hive_topology
         m0 = b.get_master("M0")
@@ -287,7 +271,6 @@ class TestPlotChaoticHive:
         _assert_png(p2)
 
     @pytest.mark.slow
-    @_MAPPER_RTT_BUG
     def test_each_master_discovery_written(self, chaotic_hive_topology, img_dir):
         """Generate one discovery plot per master node."""
         b = chaotic_hive_topology

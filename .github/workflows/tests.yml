@@ -124,10 +124,13 @@ jobs:
         # needs a skill this job does not install guards itself with
         # skill_missing()/skipif and skips cleanly. Add an --ignore line here
         # only for a module that cannot run at all, and say why.
+        # Rebalanced after shard 1 blew the 90-minute cap: the get_response
+        # module (xfailed, but still burning its per-test timeouts) and the
+        # converse module move to the lighter shard 2 (which ran in ~15min).
         if [ "${{ matrix.shard }}" = "1" ]; then
-          FILES="tests/test_e2e_[a-l]*.py tests/test_helloworld_hivemind.py tests/test_ovoscope_integration.py"
+          FILES="tests/test_e2e_[b-l]*.py tests/test_helloworld_hivemind.py tests/test_ovoscope_integration.py"
         else
-          FILES="tests/test_e2e_[m-z]*.py tests/test_protocol_v3_noise.py tests/test_solver_harness.py tests/test_topology_plots.py"
+          FILES="tests/test_e2e_a*.py tests/test_e2e_[m-z]*.py tests/test_protocol_v3_noise.py tests/test_solver_harness.py tests/test_topology_plots.py"
         fi
         .venv/bin/python -m pytest $FILES \
           -p no:ovoscope --timeout=300 -v --tb=short
