@@ -142,4 +142,4 @@ The JavaScript e2e test (`test_js_e2e.py`) requires Node.js and uses
 
 ## License
 
-AGPL-3.0
+Apache-2.0
