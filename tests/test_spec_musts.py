@@ -102,6 +102,17 @@ class TestFloodLoopSuppression:
     """NODE-1 §3.4 — a routing message must not loop forever; the flood_id gate
     bounds each node's participation in a flood to exactly once."""
 
+    # The 30s project-wide per-test budget is too tight for this one. The
+    # diamond fixture builds SEVEN nodes, each generating a fresh 2048-bit RSA
+    # identity and completing a password handshake: ~13s of fixture setup and
+    # ~3s of assertions on an idle machine, and a loaded CI runner multiplies
+    # that until the test trips the budget. Every such failure has been the box
+    # being busy, never a hang — raising the budget makes it pass, which is the
+    # proof. A gate that flips under load teaches people to ignore red, so give
+    # this one room; it still fails fast if the flood really does not terminate,
+    # because a non-terminating flood recirculates forever rather than finishing
+    # slowly.
+    @pytest.mark.timeout(180)
     def test_flood_terminates_and_reinjection_is_suppressed(self, cyclic_topology):
         b = cyclic_topology
         m0 = b.get_master("M0")
@@ -2058,3 +2069,35 @@ class TestLoopedMessagesAreStillDeliveredLocally:
                 "a looped CASCADE must not be forwarded upstream (MSG-1 §5)"
         finally:
             b.stop_all()
+
+
+#: WIRE-1 §4.2, transcribed from the spec table. Kept as a literal (not derived
+#: from the implementation) so this file is an independent copy of the wire
+#: contract: deriving it from ``_INT2TYPE`` would make the test agree with
+#: whatever the code does.
+#:
+#: Code 11 was THIRDPRTY, which MSG-1 §3 removed. It stays **reserved** and
+#: absent here — a decoder must reject it as unassigned, and reusing it for a
+#: new type would break every deployed peer that still speaks it.
+WIRE1_MESSAGE_TYPE_CODES = {
+    0: "HANDSHAKE",
+    1: "BUS",
+    2: "SHARED_BUS",
+    3: "BROADCAST",
+    4: "PROPAGATE",
+    5: "ESCALATE",
+    6: "HELLO",
+    7: "QUERY",
+    8: "CASCADE",
+    9: "PING",
+    10: "RENDEZVOUS",
+    12: "BINARY",
+}
+
+
+#: The bus-client release that made the encoder refuse an unencodable type
+#: (hivemind-websocket-client#151) and the decoder reject an unassigned code
+#: (#145). ``pyproject.toml`` floors the dependency here; the check below turns
+#: an environment below that floor into a failure that says so, instead of a
+#: bare "DID NOT RAISE" that looks like a protocol regression.
+WIRE1_BUS_CLIENT_FLOOR = (0, 10, 6)
