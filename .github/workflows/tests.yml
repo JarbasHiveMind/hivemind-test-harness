@@ -41,6 +41,10 @@ jobs:
     # the extra runtimes they need, so exclude them here. The embedded modules
     # skip themselves without the MicroPython client checkout, so they also run
     # in the required embedded-tests job below.
+    # test_protocol_v3_noise.py self-skips here too (no websocket-client extra),
+    # but leaving it in still burns collection time and blurs the one-file/
+    # one-job partition this list otherwise keeps. It runs for real in the
+    # ovos-e2e job's shard 2.
     - name: Run tests
       run: |
         .venv/bin/python -m pytest tests/ -v --tb=short -m "not slow" \
@@ -51,7 +55,8 @@ jobs:
           --ignore=tests/test_ovoscope_integration.py \
           --ignore=tests/test_solver_harness.py \
           --ignore=tests/test_js_e2e.py \
-          --ignore=tests/test_topology_plots.py
+          --ignore=tests/test_topology_plots.py \
+          --ignore=tests/test_protocol_v3_noise.py
 
   ovos-e2e:
     # Live OVOS skill-execution layer: routes real utterances through HiveMind
@@ -63,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     runs-on: ubuntu-latest
     needs: harness-tests
     # Each module boots its own MiniCroft (up to a 180s READY budget) and runs
@@ -124,14 +129,25 @@ jobs:
         # needs a skill this job does not install guards itself with
         # skill_missing()/skipif and skips cleanly. Add an --ignore line here
         # only for a module that cannot run at all, and say why.
-        # Rebalanced after shard 1 blew the 90-minute cap: the get_response
+        # Rebalanced after shard 1 blew the 90-minute cap: the ask_yesno_selection
         # module (xfailed, but still burning its per-test timeouts) and the
         # converse module move to the lighter shard 2 (which ran in ~15min).
-        if [ "${{ matrix.shard }}" = "1" ]; then
-          FILES="tests/test_e2e_[b-l]*.py tests/test_helloworld_hivemind.py tests/test_ovoscope_integration.py"
-        else
-          FILES="tests/test_e2e_a*.py tests/test_e2e_[m-z]*.py tests/test_protocol_v3_noise.py tests/test_solver_harness.py tests/test_topology_plots.py"
-        fi
+        # (test_e2e_get_response.py is not xfailed and passes; it is just a
+        # heavy module, unrelated to this rebalance.)
+        # Four balanced shards. Each e2e module boots a MiniCroft (~180s READY
+        # + serial handlers), so the heavy cluster (acl/admin/converse*/
+        # get_response/stop/scheduler/volume_phal) is spread across shards to
+        # stay under the 90-min cap — three shards still overran with the whole
+        # a-g cluster on one. test/test_e2e_sharding.py asserts every
+        # tests/test_e2e_*.py is listed in exactly one shard, so a new module
+        # cannot silently run in no job (the original bug) despite the explicit
+        # lists.
+        case "${{ matrix.shard }}" in
+          1) FILES="tests/test_e2e_acl_skills.py tests/test_e2e_admin_broadcast.py tests/test_e2e_binary_skill.py tests/test_e2e_lang.py tests/test_e2e_converse.py tests/test_helloworld_hivemind.py tests/test_ovoscope_integration.py" ;;
+          2) FILES="tests/test_e2e_converse_advanced.py tests/test_e2e_get_response.py tests/test_protocol_v3_noise.py" ;;
+          3) FILES="tests/test_e2e_misc_skills.py tests/test_e2e_multi_satellite.py tests/test_e2e_ocp.py tests/test_e2e_relay_acl.py tests/test_e2e_relay_skills.py tests/test_e2e_ask_yesno_selection.py tests/test_solver_harness.py" ;;
+          4) FILES="tests/test_e2e_scheduler.py tests/test_e2e_session.py tests/test_e2e_shared_bus.py tests/test_e2e_skills.py tests/test_e2e_stop.py tests/test_e2e_volume_phal.py tests/test_topology_plots.py" ;;
+        esac
         .venv/bin/python -m pytest $FILES \
           -p no:ovoscope --timeout=300 -v --tb=short
 

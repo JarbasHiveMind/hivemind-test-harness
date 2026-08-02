@@ -54,6 +54,11 @@ ovos = [
     "ovos-padatious>=1.4.2,<2.0.0",
     "ovos-skill-hello-world",
     "ovos-skill-date-time",
+    # Skills this extra deliberately leaves out: ovos-skill-volume,
+    # ovos-skill-fallback-unknown, and the rest of the e2e cast. Every module
+    # that needs one guards itself with skill_missing() and skips, so the
+    # volume/PHAL and most ACL scenarios never run in CI — they are local-run
+    # coverage. Add a skill here only together with the CI time it costs.
     # test_solver_harness exercises HiveMindSolver (module ovos_hivemind_solver)
     "ovos-solver-hivemind-plugin",
     # SG-7: the ovos-m2v intent pipeline ships sklearn-pickled models trained

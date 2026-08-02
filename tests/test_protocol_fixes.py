@@ -15,6 +15,7 @@ full connect/handshake/send pipeline.
 import time
 import pytest
 import pybase64
+from unittest.mock import patch
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType, HiveMindBinaryPayloadType
 from hivescope.topology import TopologyBuilder
@@ -60,14 +61,26 @@ class TestWrongPasswordDisconnects:
             wrong_sat.identity.password = "definitely-wrong-password"
             wrong_sat._master = m0
 
-            try:
-                m0.network_protocol.connect_satellite(satellite=wrong_sat)
-                if not wrong_sat.shim.handshake_event.is_set():
-                    wrong_sat.slave_protocol.start_handshake()
-            except RuntimeError:
-                # The master drops the connection mid-handshake, so the client's
-                # next write finds no connection. That IS the rejection.
-                pass
+            # Spy on the master's specific invalid-key rejection path so a crash
+            # elsewhere in the handshake (which would produce the same external
+            # symptoms below) cannot be mistaken for the wrong-password rejection.
+            real_handle_invalid_key = m0.hm_protocol.handle_invalid_key_connected
+            with patch.object(
+                m0.hm_protocol, "handle_invalid_key_connected",
+                wraps=real_handle_invalid_key,
+            ) as spy_invalid_key:
+                try:
+                    m0.network_protocol.connect_satellite(satellite=wrong_sat)
+                    if not wrong_sat.shim.handshake_event.is_set():
+                        wrong_sat.slave_protocol.start_handshake()
+                except RuntimeError:
+                    # The master drops the connection mid-handshake, so the client's
+                    # next write finds no connection. That IS the rejection.
+                    pass
+
+                assert spy_invalid_key.call_count == 1, \
+                    ("Wrong password must be rejected via handle_invalid_key_connected "
+                     f"exactly once; got {spy_invalid_key.call_count} calls")
 
             assert not wrong_sat.shim.handshake_event.is_set(), \
                 "Wrong-password satellite must never complete the handshake"

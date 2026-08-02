@@ -57,7 +57,7 @@ from tests.conftest import (
 # handlers run serially after that, so the repo-wide 30s default is far too
 # tight for this module.
 pytestmark = [
-    pytest.mark.timeout(90),
+    pytest.mark.timeout(30),
     # The ask_yesno/ask_selection round trip over HiveMind does not
     # complete: the skill thread parks inside ovos_workshop's
     # __get_response wait and the satellite's answer never reaches it.

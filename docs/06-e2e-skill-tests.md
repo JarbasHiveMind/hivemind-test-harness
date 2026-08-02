@@ -253,15 +253,37 @@ b.add_satellite("S0", upstream=master,
 # S0's "good morning" → Greetings.intent (padatious intent not blocked)
 ```
 
-### msg_blacklist
+### msg_blacklist — accepted, but it does nothing
 
-Blocks specific message types from being delivered to the satellite. The skill still executes on the hub — only the response delivery is filtered.
+`msg_blacklist` is a dead parameter. hivemind-core is whitelist-only and
+deny-by-default: `allowed_types` is the single admission mechanism, and it
+governs the **uplink** (satellite → hub). `hivescope/database.py` keeps the
+`message_blacklist` kwarg for API compatibility and drops it on the floor.
 
 ```python
 b.add_satellite("S0", upstream=master, msg_blacklist=["speak"])
 # S0's "hello world" → skill fires, speak emitted on hub bus
-# But satellite never receives the speak message
+# The satellite still receives the speak. Nothing filters the downlink.
 ```
+
+TS-ACL-06 asserts the blocking behaviour and is strict-xfailed until an
+outbound ACL exists upstream.
+
+### The downlink rule
+
+There is exactly one rule for hub → satellite delivery, and it is type-blind:
+
+> The hub sends a bus message to a satellite if, and only if, the message's
+> `context["destination"]` names that peer.
+
+It lives in `hivescope/plugins/agent.py::handle_internal_mycroft`, a verbatim
+port of `hivemind_ovos_agent_plugin`. Consequences worth knowing:
+
+* No message type is privileged. A destination-addressed `speak` and a
+  destination-addressed `mycroft.volume.set` are delivered the same way.
+* No ACL is consulted on the way down — hence TS-ACL-06.
+* A message that keeps the inbound `destination` of `"skills"` (which
+  hivemind-core stamps on injected utterances) never reaches a satellite.
 
 ---
 
