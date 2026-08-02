@@ -25,7 +25,9 @@ pytest tests/ -m "not slow" \
   --ignore-glob='tests/test_e2e_*.py' \
   --ignore-glob='tests/test_embedded_*.py'
 
-# Large-topology stress tests only (what nightly CI runs)
+# Large-topology stress tests only (what nightly CI runs); needs the plot
+# extra too — tests/test_topology_plots.py imports hivescope.topology_plot
+uv pip install --prerelease=allow -e ".[dev,plot]"
 pytest tests/ -m slow
 ```
 

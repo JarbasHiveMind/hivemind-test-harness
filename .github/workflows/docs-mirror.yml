@@ -32,8 +32,10 @@ jobs:
     steps:
     - name: Check for HIVEMIND_PAT
       id: pat_check
+      env:
+        PAT: ${{ secrets.HIVEMIND_PAT }}
       run: |
-        if [ -z "${{ secrets.HIVEMIND_PAT }}" ]; then
+        if [ -z "$PAT" ]; then
           echo "::warning title=Docs mirror skipped::HIVEMIND_PAT secret is not set, so this repo cannot push a branch or open a PR against JarbasHiveMind/hivescope. Add a HIVEMIND_PAT secret with write access there to enable the mirror. Skipping."
           echo "has_pat=false" >> "$GITHUB_OUTPUT"
         else
@@ -71,14 +73,30 @@ jobs:
         sed -i 's/(api\.md)/(test-harness-api.md)/g' hivescope/docs/test-harness-nodes.md
         sed -i 's/(nodes\.md)/(test-harness-nodes.md)/g' hivescope/docs/test-harness-api.md
 
+        # The remaining relative links point at files that are not mirrored
+        # into hivescope at all; rewrite them to absolute URLs back at this
+        # repo instead of leaving them to 404 in hivescope's tree.
+        base="https://github.com/JarbasHiveMind/hivemind-test-harness/blob/dev/docs"
+        for f in hivescope/docs/test-harness-api.md hivescope/docs/test-harness-nodes.md; do
+          sed -i "s#(07-message-routing\.md)#($base/07-message-routing.md)#g" "$f"
+          sed -i "s#(index\.md)#($base/index.md)#g" "$f"
+          sed -i "s#(03-topologies\.md)#($base/03-topologies.md)#g" "$f"
+        done
+
     - name: Open (or update) draft PR against hivescope
       if: steps.pat_check.outputs.has_pat == 'true' && steps.hivescope_checkout.outcome == 'success'
       env:
         GH_TOKEN: ${{ secrets.HIVEMIND_PAT }}
+        PAT: ${{ secrets.HIVEMIND_PAT }}
       run: |
         cd hivescope
         git config user.name "JarbasAi"
         git config user.email "jarbasai@mailfence.com"
+
+        # The checkout above uses persist-credentials: false, so the remote
+        # has no auth for `git push`. Re-inject it via the URL (not an
+        # inline ${{ }} interpolation) using the PAT passed through env.
+        git remote set-url origin "https://x-access-token:${PAT}@github.com/JarbasHiveMind/hivescope.git"
 
         # Branch name is keyed on the source commit, not the run, so reruns
         # of the same push (github.sha is identical across reruns) reuse the
@@ -102,7 +120,7 @@ jobs:
           -m "Auto-mirrored from JarbasHiveMind/hivemind-test-harness@${{ github.sha }}."
         git push --force-with-lease origin "$branch"
 
-        if gh pr view "$branch" --json number > /dev/null 2>&1; then
+        if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
           echo "PR already open for $branch; branch updated in place."
         else
           gh pr create --draft \

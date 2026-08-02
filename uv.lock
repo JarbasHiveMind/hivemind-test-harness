@@ -9,11 +9,8 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 
-[manifest]
-constraints = [
-    { name = "ovos-core", specifier = "<2.6.0a1" },
-    { name = "ovos-skill-date-time", specifier = ">=0.2.2" },
-]
+[options]
+prerelease-mode = "allow"
 
 [[package]]
 name = "ahocorasick-ner"
@@ -2035,7 +2032,7 @@ wheels = [
 
 [[package]]
 name = "ovos-core"
-version = "2.5.10a1"
+version = "2.6.0a1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "combo-lock" },
@@ -2050,9 +2047,9 @@ dependencies = [
     { name = "rapidfuzz" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/0a/a8fa9a4c7081faa31596e059011be7b5fbcb51a800168113f0b2a1dc6732/ovos_core-2.5.10a1.tar.gz", hash = "sha256:464eb65dd1b6663beefc585bc5fa78b06302673c17aa77ffcb99a924620ba7de", size = 58764, upload-time = "2026-08-02T01:07:54.629Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/15/e77ae874796ed36a66ae188599bad34b2a0380a4a4a97a4741d04cff7862/ovos_core-2.6.0a1.tar.gz", hash = "sha256:843ee43be68f5deaf8ccecd684e624dad0bcb13a70a3d816b8bcdc38e1a40bcb", size = 59566, upload-time = "2026-08-02T01:10:46.11Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c5/47/daeabc89a51a1ae9bf1008d087e608d91d24f197ab89c1661178b87b7b58/ovos_core-2.5.10a1-py3-none-any.whl", hash = "sha256:1a45eacc2f42608ecf699df0f3a6ccdfe5500458aa5b2f918cf85f0768931722", size = 67559, upload-time = "2026-08-02T01:07:53.228Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/9e/c90518eabb2a51f78fae7712176c2c9a21a9e61edfd4927f492010891c0d/ovos_core-2.6.0a1-py3-none-any.whl", hash = "sha256:44f37550ac007224fb494302605c0d2c507b675aac862e0ddacc2072a90f94bd", size = 68325, upload-time = "2026-08-02T01:10:44.881Z" },
 ]
 
 [package.optional-dependencies]
