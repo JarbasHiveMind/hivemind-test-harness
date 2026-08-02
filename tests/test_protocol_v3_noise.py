@@ -410,6 +410,121 @@ def test_min_protocol_version_advertised(hub):
 
 
 # ---------------------------------------------------------------------------
+# 5b. Noise handshake patterns (CRYPTO-1 §3.4.2)
+# ---------------------------------------------------------------------------
+def test_default_pattern_is_xxpsk2(hub):
+    """CRYPTO-1 §3.4.2 — XXpsk2 is the mandatory default. A fresh (un-pinned)
+    client is offered exactly XXpsk2 as the preferred pattern (KKpsk0 is only
+    offered once the client's static key has been pinned by a prior handshake)."""
+    hub.set_config(min_protocol_version=2)
+    hub.start_core(logname="core_xx.log")
+    assert _wait_port(WS_PORT)
+    time.sleep(1)
+
+    payload = _read_advertised_handshake()
+    patterns = (payload.get("noise") or {}).get("patterns") or []
+    assert "XXpsk2" in patterns, f"XXpsk2 must be advertised, got {patterns}"
+    assert patterns[0] == "XXpsk2", \
+        f"XXpsk2 must be the preferred (first) pattern for an un-pinned client, got {patterns}"
+    assert "KKpsk0" not in patterns, \
+        "KKpsk0 must NOT be offered to a client whose static key is not yet pinned"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="the negotiated Noise pattern is not observable through the harness: "
+           "hivemind-core logs only 'Noise session established' without the "
+           "pattern name and HiveMessageBusClient exposes no selected-pattern "
+           "attribute, so KKpsk0 preference on reconnection (CRYPTO-1 §3.4.2) "
+           "cannot be asserted on the wire.",
+)
+def test_kkpsk0_negotiated_on_reconnect(hub):
+    """CRYPTO-1 §3.4.2 — once both peers hold each other's static keys, KKpsk0
+    SHOULD be the negotiated pattern on reconnection. Encoded here so it flips
+    to a pass the moment the negotiated pattern becomes observable."""
+    hub.set_config(min_protocol_version=2)
+    hub.start_core(logname="core_kk.log")
+    assert _wait_port(WS_PORT)
+    time.sleep(1)
+
+    c1 = _connect(STRONG_KEY, STRONG_PW, retries=5)
+    try:
+        assert c1.noise_transport is not None
+    finally:
+        try:
+            c1.close()
+        except Exception:
+            pass
+
+    # Reconnect WITHOUT clearing pins so KKpsk0 becomes eligible.
+    c2 = HiveMessageBusClient(key=STRONG_KEY, password=STRONG_PW,
+                              host="127.0.0.1", port=WS_PORT)
+    try:
+        c2.connect(site_id="e2e", handshake_max_retries=5)
+        selected = getattr(c2, "selected_noise_pattern", None)
+        assert selected == "KKpsk0", \
+            f"expected KKpsk0 on reconnect, observed {selected!r}"
+    finally:
+        try:
+            c2.close()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# 5c. Identity pinning — a contradicted static key aborts (CRYPTO-1 §3.4.5)
+# ---------------------------------------------------------------------------
+def test_noise_pinning_aborts_on_contradicted_key(hub):
+    """CRYPTO-1 §3.4.5 — 'a peer whose handshake completes against a static key
+    that contradicts a pinned key MUST abort the handshake and reject the
+    connection.' Simulate a MITM: pin the server under a bogus static key, then
+    reconnect — the real server key now contradicts the pin and the handshake
+    must fail (no Noise session)."""
+    hub.set_config(min_protocol_version=2)
+    hub.start_core(logname="core_pin.log")
+    assert _wait_port(WS_PORT)
+    time.sleep(1)
+
+    # First connect pins the genuine server static key via TOFU.
+    c1 = _connect(STRONG_KEY, STRONG_PW, retries=5)
+    try:
+        assert c1.noise_transport is not None, "baseline XXpsk2 must succeed"
+        pins = dict(c1.identity.pinned_noise_keys)
+        assert pins, "a completed XXpsk2 handshake must pin the server static key"
+    finally:
+        try:
+            c1.close()
+        except Exception:
+            pass
+
+    # Corrupt every pin to a bogus key (the MITM's key) and persist it.
+    bogus = "00" * 32
+    for node_id in pins:
+        c1.identity.pin_noise_key(node_id, bogus)
+    c1.identity.save()
+
+    # Reconnect WITHOUT clearing pins: the genuine server key now contradicts
+    # the (bogus) pin, so the handshake must abort — no session established.
+    c2 = HiveMessageBusClient(key=STRONG_KEY, password=STRONG_PW,
+                              host="127.0.0.1", port=WS_PORT)
+    aborted = False
+    try:
+        try:
+            c2.connect(site_id="e2e", handshake_max_retries=1)
+            aborted = c2.noise_transport is None
+        except Exception:
+            aborted = True
+        finally:
+            try:
+                c2.close()
+            except Exception:
+                pass
+    finally:
+        assert aborted, \
+            "a contradicted pinned static key MUST abort the handshake (MITM guard)"
+
+
+# ---------------------------------------------------------------------------
 # 6. derive-psk provisioning matches the poorman reference
 # ---------------------------------------------------------------------------
 def test_derive_psk_matches_poorman(hub):
