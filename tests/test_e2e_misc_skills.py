@@ -26,7 +26,7 @@ from tests.conftest import (
     VOICE_TYPES,
     SKILL_HELLO, SKILL_IP, SKILL_COUNT,
     skill_missing, make_utterance, assert_types_in_order,
-    wait_for_satellite_message, poll_until,
+    wait_for_satellite_message,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -255,8 +255,9 @@ class TestEdgeCases:
         s0.send(Message("custom.unknown.event", {"data": "test"}))
 
         # The unknown type is not in allowed_types, so it must never reach the
-        # agent bus. Give the (non-)delivery a moment, then assert it is absent.
-        poll_until(lambda: True, timeout=0.5, message="")
+        # agent bus. Give a (bug-induced) delivery a real moment to land before
+        # asserting the negative, so the test cannot pass merely by racing it.
+        time.sleep(0.5)
         agent.assert_skill_not_emitted("custom.unknown.event")
 
         # The connection must survive an unroutable message: S0 is still a

@@ -16,7 +16,10 @@ Covered here (in-process, via the hivescope shim):
   * POLICY-1 §5             — fail-closed: a raising policy denies, never defaults open
   * POLICY-1 §4             — live whitelist mutation takes effect on the next message
   * WIRE-1 §4.2             — reserved binary codes 8/11 (strict-xfail: reused)
-  * CRYPTO-1 §5             — INTERCOM signature verification (strict-xfail: TODO)
+  * CRYPTO-1 §5             — INTERCOM origin-signature verification (real
+                              positive+negative pair: a genuinely RSA-signed
+                              INTERCOM delivers its inner BUS; a forged signature
+                              is rejected against the TOFU-pinned pubkey)
   * NODE-1 §3.3             — BROADCAST through a relay to a leaf (strict-xfail: gap)
   * cross-runtime matrix    — a BUS utterance round-trips on every node combo
 
@@ -337,43 +340,83 @@ class TestReservedWireCodes:
 # ---------------------------------------------------------------------------
 
 class TestIntercomSignatureVerification:
-    """CRYPTO-1 §5 — an INTERCOM target that verifies a signature MUST reject a
-    message whose signature does not verify, and deliver one that does."""
+    """CRYPTO-1 §5 — an INTERCOM target that verifies a signature MUST deliver
+    a message whose signature verifies and reject one whose signature does not.
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="hivemind-core does not implement INTERCOM signature verification: "
-               "the signature field is a TODO (senders emit signature=b''), "
-               "handle_intercom_message checks the outer INTERCOM msg_type so the "
-               "decrypted inner is never dispatched, and there is no origin-"
-               "authenticity check (CRYPTO-1 §5; hivemind-websocket-client#130).",
-    )
-    def test_valid_signed_intercom_delivers_inner(self, minimal_topology):
+    hivemind-core implements this: ``handle_intercom_message`` verifies the
+    origin signature over the ciphertext against the public key pinned for the
+    sender on first use (TOFU, from the sender's HELLO), decrypts, and dispatches
+    the inner message by its OWN type. This pair proves both halves of the MUST
+    end-to-end on the installed core — no xfail, because the capability exists.
+
+    The inner BUS is deliberately minimal. hivemind-core encrypts the INTERCOM
+    body with raw RSA (``encrypt_RSA`` → PKCS1-OAEP), so the serialized inner
+    must fit one RSA block; with the harness's 2048-bit identity keys that ceiling
+    is ~214 bytes, which an empty-``data`` ``recognizer_loop:utterance`` clears
+    and a populated one does not. Signature verification — the property under
+    test — does not depend on the inner payload's contents.
+    """
+
+    def _signed_intercom_payload(self, master, sign_key):
+        """Build an INTERCOM payload: inner BUS encrypted to ``master``'s pubkey,
+        the ciphertext signed with ``sign_key`` (a private-key PEM or RsaKey)."""
         import pybase64
-        from poorman_handshake.asymmetric.utils import encrypt_RSA, load_RSA_key
+        from poorman_handshake.asymmetric.utils import encrypt_RSA, sign_RSA
+
+        inner = HiveMessage(HiveMessageType.BUS,
+                            payload=Message("recognizer_loop:utterance", {}))
+        ciphertext = encrypt_RSA(master.identity.public_key, inner.serialize())
+        signature = sign_RSA(sign_key, ciphertext)
+        return {
+            "ciphertext": pybase64.b64encode(ciphertext).decode(),
+            "signature": pybase64.b64encode(signature).decode(),
+        }
+
+    def test_valid_signed_intercom_delivers_inner(self, minimal_topology):
+        from poorman_handshake.asymmetric.utils import load_RSA_key
 
         b = minimal_topology
         s0 = b.get_satellite("S0")
         m0 = b.get_master("M0")
 
-        inner = HiveMessage(HiveMessageType.BUS,
-                            payload=Message("recognizer_loop:utterance",
-                                            {"utterances": ["signed intercom"]},
-                                            context={"session": {
-                                                "session_id": s0.shim.session_id}}))
-        master_priv = load_RSA_key(m0.identity.private_key)
-        ciphertext = encrypt_RSA(master_priv.publickey(),
-                                 inner.serialize().encode("utf-8"))
-        # A genuine origin signature would go here; the sender API leaves it empty.
-        payload = {
-            "ciphertext": pybase64.b64encode(ciphertext).decode(),
-            "signature": pybase64.b64encode(b"").decode(),
-        }
+        # S0's pubkey was pinned by the master on S0's HELLO during connect, so
+        # a signature made with S0's private key verifies and the inner BUS is
+        # delivered to the agent bus. ``private_key`` is a PEM file path, so load
+        # it into an RSA key before signing.
+        assert m0.hm_protocol.trusted_pubkeys.get(s0._connection.key), (
+            "precondition: master must have TOFU-pinned S0's pubkey from HELLO")
+        payload = self._signed_intercom_payload(
+            m0, load_RSA_key(s0.identity.private_key))
         s0.send(HiveMessage(HiveMessageType.INTERCOM, payload=payload,
                             target_pubkey=m0.identity.public_key))
 
         # The MUST: a verified INTERCOM delivers its inner BUS to the target.
+        poll_until(
+            lambda: m0.agent_protocol.last_injected("recognizer_loop:utterance"),
+            timeout=3,
+            message="verified INTERCOM did not deliver its inner BUS")
         m0.agent_protocol.assert_injected("recognizer_loop:utterance")
+
+    def test_forged_intercom_signature_rejected(self, minimal_topology):
+        from poorman_handshake.asymmetric.utils import create_RSA_key
+
+        b = minimal_topology
+        s0 = b.get_satellite("S0")
+        m0 = b.get_master("M0")
+
+        # A forger signs with a key that is NOT the one pinned for S0. The
+        # ciphertext still decrypts (it is RSA-encrypted to the master), but the
+        # origin signature fails verification against S0's pinned pubkey, so the
+        # inner BUS MUST NOT be dispatched.
+        _forger_pub, forger_priv = create_RSA_key()
+        payload = self._signed_intercom_payload(m0, forger_priv)
+        s0.send(HiveMessage(HiveMessageType.INTERCOM, payload=payload,
+                            target_pubkey=m0.identity.public_key))
+
+        # A tiny wait so a (bug-induced) async delivery would still be caught
+        # before we assert the negative, rather than passing by racing it.
+        time.sleep(0.3)
+        m0.agent_protocol.assert_not_injected("recognizer_loop:utterance")
 
 
 # ---------------------------------------------------------------------------
