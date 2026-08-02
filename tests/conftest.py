@@ -36,8 +36,67 @@ Topology catalogue
                                └─ short arms: S_short0/1/2         (depth 1)
 """
 import random
+import socket
+import time
 import pytest
 from hivescope.topology import TopologyBuilder
+
+
+# ---------------------------------------------------------------------------
+# Timing helpers — poll-until-condition instead of fixed sleeps
+# ---------------------------------------------------------------------------
+
+class PollTimeout(AssertionError):
+    """Raised by :func:`poll_until` when the predicate never becomes true.
+
+    A subclass of ``AssertionError`` so a timed-out wait fails the test loudly
+    with a real assertion rather than silently passing on a slept-through
+    fixed delay.
+    """
+
+
+def poll_until(predicate, timeout: float = 10.0, interval: float = 0.02,
+               message: str = "condition not met within timeout"):
+    """Poll ``predicate`` until it returns a truthy value or ``timeout`` elapses.
+
+    Returns the truthy value the predicate produced (so callers can poll for a
+    message and use it). Raises :class:`PollTimeout` on expiry.
+
+    This replaces ``time.sleep(<fixed>)`` waits: a fast machine no longer burns
+    the whole delay, and a slow one no longer flakes because the fixed delay was
+    a hair too short. The predicate is re-checked immediately once before the
+    first sleep so an already-satisfied condition returns with no latency.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        value = predicate()
+        if value:
+            return value
+        if time.monotonic() >= deadline:
+            raise PollTimeout(message)
+        time.sleep(interval)
+
+
+def free_port(host: str = "127.0.0.1") -> int:
+    """Return a currently-free TCP port by binding to port 0 and reading it back.
+
+    Each fixture that needs a listening port should allocate one through this so
+    two topologies started in parallel (``pytest -n auto``) never collide on a
+    hardcoded port. There is an unavoidable bind/close race, but the window is
+    microseconds and far smaller than the collision rate of a fixed constant.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind((host, 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
+
+
+@pytest.fixture
+def poll():
+    """Expose :func:`poll_until` as a fixture for tests that prefer injection."""
+    return poll_until
 
 # The in-process simulator (nodes, fixtures, assertions, scenarios) lives in
 # hivescope. Register its pytest fixtures (topology, master_node, satellite_node,

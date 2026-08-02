@@ -35,7 +35,7 @@ from tests.conftest import (
     open_capture,
     make_ovoscope_agent,
     SKILL_COUNT, SKILL_HELLO,
-    skill_missing, make_utterance, wait_for_satellite_message,
+    skill_missing, make_utterance, wait_for_satellite_message, poll_until,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -141,17 +141,46 @@ class TestStopActiveCount:
         agent.wait_for_skill_emission(SpecMessage.SPEAK, count=1, timeout=10)
 
         # Send stop while counting is still active
-        time.sleep(1)  # Let a couple numbers count
+        time.sleep(1)  # let a couple numbers count
         agent.clear()
         s0.send(make_utterance("stop", STOP_PIPELINE, s0.shim.session_id))
 
-        # Wait for stop to process
-        time.sleep(5)
+        def _speaks():
+            return [m for m in agent.injected if m.msg_type == SpecMessage.SPEAK]
 
-        # Count the total speaks -- should be less than 10
-        all_speaks = [m for m in agent.injected if m.msg_type == SpecMessage.SPEAK]
-        # We can't assert exact count, but counting should have stopped
-        # The test passes if it completes without hanging
+        # After "stop" the count must actually halt: the number of speaks
+        # emitted post-stop settles to a small value well below the full
+        # count-to-ten. Poll until the speak count stops growing across TWO
+        # consecutive 1s windows (quiescent), then assert counting was
+        # interrupted rather than running to completion.
+        #
+        # A single quiescent window is not evidence the stop was processed:
+        # the very first 1s window after "stop" is sent can observe 0 new
+        # speaks simply because the stop utterance has not been handled yet
+        # (nothing has spoken since agent.clear()), which would make the
+        # assertion below trivially pass even if counting later resumed and
+        # ran to completion. Requiring two consecutive quiescent windows
+        # means at least one full poll cycle has elapsed since the stop was
+        # sent with no growth observed in either window.
+        _consecutive_quiescent = 0
+
+        def _quiescent():
+            nonlocal _consecutive_quiescent
+            n = len(_speaks())
+            time.sleep(1.0)
+            if len(_speaks()) == n:
+                _consecutive_quiescent += 1
+            else:
+                _consecutive_quiescent = 0
+            return _consecutive_quiescent >= 2
+
+        poll_until(_quiescent, timeout=15,
+                   message="counting never went quiescent after 'stop'")
+        post_stop = len(_speaks())
+        assert post_stop < 10, (
+            f"'stop' did not interrupt counting: {post_stop} speaks after stop "
+            f"(a full count to ten would emit ~10)"
+        )
 
     def test_stop_ping_pong_emitted(self, stop_topology):
         """TS-ST-04 -- stop triggers ping/pong for active skill."""

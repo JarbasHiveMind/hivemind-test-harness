@@ -108,7 +108,11 @@ class TestUtteranceRoutingToMiniCroft:
 
         s0.send(_make_utterance("hello"))
 
+        # wait_for_skill_emission raises on timeout; the explicit assert makes
+        # the behavioral expectation (the utterance reached the OVOS bus) visible.
         agent.wait_for_skill_emission("recognizer_loop:utterance")
+        assert agent.last_injected("recognizer_loop:utterance") is not None, \
+            "satellite utterance was not injected on the OVOS bus"
 
     def test_utterance_text_preserved(self, ovoscope_topology):
         b, agent = ovoscope_topology
@@ -135,6 +139,8 @@ class TestUtteranceRoutingToMiniCroft:
 
         # ovos.utterance.handled is the EOF marker — always emitted
         agent.wait_for_skill_emission("ovos.utterance.handled")
+        assert agent.last_injected("ovos.utterance.handled") is not None, \
+            "the utterance-handled EOF marker was never emitted"
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +158,8 @@ class TestCompleteIntentFailure:
         s0.send(_make_utterance("unrecognised utterance xyz"))
 
         agent.wait_for_skill_emission(SpecMessage.INTENT_UNMATCHED)
+        assert agent.last_injected(SpecMessage.INTENT_UNMATCHED) is not None, \
+            "an unrecognised utterance must raise intent-unmatched"
 
     def test_no_speak_on_intent_failure(self, ovoscope_topology):
         b, agent = ovoscope_topology

@@ -26,7 +26,9 @@ console scripts (the ``ovos`` extra) are not installed, so it never reds a
 minimal ``build_tests`` environment.
 """
 import json
+import logging
 import os
+import re
 import shutil
 import signal
 import socket
@@ -38,6 +40,8 @@ import pytest
 
 from hivemind_bus_client.client import HiveMessageBusClient
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
+
+from tests.conftest import free_port
 from ovos_bus_client.message import Message
 
 # ---------------------------------------------------------------------------
@@ -57,8 +61,6 @@ pytestmark = [
     pytest.mark.timeout(180),
 ]
 
-WS_PORT = 5678
-MB_PORT = 8181
 STRONG_KEY = "Rur7lZma4H4uraQ6qHgWH3lg"
 STRONG_PW = "Corr3ct-Horse!Batt3ry_v3xx"
 WEAK_KEY = "weakweakweakweakweakweak"
@@ -68,18 +70,6 @@ WEAK_PW = "1234"
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
-def _free(port: int, host: str = "127.0.0.1") -> bool:
-    s = socket.socket()
-    s.settimeout(0.3)
-    try:
-        s.connect((host, port))
-        return False
-    except OSError:
-        return True
-    finally:
-        s.close()
-
-
 def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 25) -> bool:
     end = time.time() + timeout
     while time.time() < end:
@@ -100,6 +90,13 @@ class Hub:
 
     def __init__(self, tmp_path: Path):
         self.root = tmp_path
+        # Per-hub dynamic ports, allocated through the shared free_port() helper so
+        # two hubs booted in parallel (pytest -n auto) never collide on a fixed
+        # constant. The websocket listener and the ovos-messagebus backend each
+        # get their own port; both the hub subprocesses and the in-test clients
+        # read them off this instance, never a module-level constant.
+        self.ws_port = free_port()
+        self.mb_port = free_port()
         self.env = dict(os.environ)
         self.env.update(
             XDG_CONFIG_HOME=str(tmp_path / "config"),
@@ -109,6 +106,15 @@ class Hub:
         (tmp_path / "config").mkdir(parents=True, exist_ok=True)
         (tmp_path / "data").mkdir(parents=True, exist_ok=True)
         self.server_json = tmp_path / "config" / "hivemind-core" / "server.json"
+        # ovos-messagebus reads its bind port from mycroft.conf's websocket
+        # section; write it into the hub's isolated XDG_CONFIG_HOME so the bus
+        # binds mb_port instead of the 8181 default. hivemind-core's own agent
+        # connection is pointed at the same port via server.json (see
+        # _apply_dynamic_ports).
+        mycroft_conf = tmp_path / "config" / "mycroft" / "mycroft.conf"
+        mycroft_conf.parent.mkdir(parents=True, exist_ok=True)
+        mycroft_conf.write_text(json.dumps(
+            {"websocket": {"host": "127.0.0.1", "port": self.mb_port}}))
         self.mb = None
         self.core = None
 
@@ -152,6 +158,31 @@ class Hub:
         cfg.update(kw)
         self.server_json.write_text(json.dumps(cfg, indent=2))
 
+    def _apply_dynamic_ports(self):
+        """Point the hub's server.json at this instance's dynamic ports.
+
+        Sets the websocket listener to ``ws_port`` and the ovos-agent backend
+        connection to ``mb_port``, and drops the default hivemind-http listener
+        (its fixed 5679 would be a second hardcoded-port collision under
+        ``-n auto`` and no test exercises it). Reads-modifies-writes so any
+        keys a test already set via ``set_config`` are preserved.
+        """
+        if not self.server_json.exists():
+            self.cli("print-config")
+        cfg = json.loads(self.server_json.read_text())
+        net = cfg.get("network_protocol", {})
+        ws = dict(net.get("hivemind-websocket-plugin",
+                          {"host": "0.0.0.0", "ssl": False}))
+        ws["port"] = self.ws_port
+        cfg["network_protocol"] = {"hivemind-websocket-plugin": ws}
+        agent = cfg.get("agent_protocol", {})
+        agent.setdefault("module", "hivemind-ovos-agent-plugin")
+        plug = dict(agent.get("hivemind-ovos-agent-plugin", {"host": "127.0.0.1"}))
+        plug["port"] = self.mb_port
+        agent["hivemind-ovos-agent-plugin"] = plug
+        cfg["agent_protocol"] = agent
+        self.server_json.write_text(json.dumps(cfg, indent=2))
+
     # -- processes --
     def start_messagebus(self):
         # The log handle is kept so stop() can close it; an unclosed handle
@@ -162,9 +193,13 @@ class Hub:
             stdout=self._mb_log_fh, stderr=subprocess.STDOUT)
         # The caller (the fixture) owns stopping this hub, so a failure to bind
         # must NOT leave the process behind — see the fixture's try/finally.
-        assert _wait_port(MB_PORT), "ovos-messagebus never bound 8181"
+        assert _wait_port(self.mb_port), \
+            f"ovos-messagebus never bound {self.mb_port}"
 
     def start_core(self, extra_env=None, logname="core.log"):
+        # Fold the dynamic ports into server.json just before launch, on top of
+        # whatever a test set via set_config.
+        self._apply_dynamic_ports()
         env = dict(self.env)
         if extra_env:
             env.update(extra_env)
@@ -204,8 +239,10 @@ class Hub:
 
 @pytest.fixture
 def hub(tmp_path, monkeypatch):
-    if not (_free(WS_PORT) and _free(MB_PORT)):
-        pytest.skip(f"ports {WS_PORT}/{MB_PORT} already in use on this host")
+    # Ports are allocated dynamically per Hub (see Hub.__init__), so there is no
+    # fixed-port contention to skip on: the test runs whenever the console
+    # scripts are installed (the module-level skipif is the only gate).
+    #
     # Isolate the CLIENT's identity + Noise pin store per test. hivemind-core
     # pins the server's Noise static key under its node_id (``master:0.0.0.0``);
     # a stale pin from a prior run against a differently-keyed local hub would
@@ -245,9 +282,9 @@ def _clear_noise_pins(client):
         pass
 
 
-def _connect(key, password, retries=4, **kw):
+def _connect(hub, key, password, retries=4, **kw):
     c = HiveMessageBusClient(key=key, password=password,
-                             host="127.0.0.1", port=WS_PORT, **kw)
+                             host="127.0.0.1", port=hub.ws_port, **kw)
     _clear_noise_pins(c)
     c.connect(site_id="e2e", handshake_max_retries=retries)
     return c
@@ -259,18 +296,18 @@ def _connect(key, password, retries=4, **kw):
 def test_v3_noise_handshake_and_encrypted_roundtrip(hub):
     hub.set_config(min_protocol_version=2)
     hub.start_core()
-    assert _wait_port(WS_PORT), "hivemind-core never bound 5678:\n" + hub.core_log()
+    assert _wait_port(hub.ws_port), f"hivemind-core never bound {hub.ws_port}:\n" + hub.core_log()
     time.sleep(1)
 
     from ovos_bus_client import MessageBusClient as OVOSBus
     ob = None
-    c = _connect(STRONG_KEY, STRONG_PW, retries=5)
+    c = _connect(hub, STRONG_KEY, STRONG_PW, retries=5)
     try:
         # v3 negotiated (a legacy v2 fallback would leave this None)
         assert c.noise_transport is not None, "expected a protocol v3 Noise session"
 
         # agent-side responder echoes utterances back as speak
-        ob = OVOSBus(host="127.0.0.1", port=MB_PORT)
+        ob = OVOSBus(host="127.0.0.1", port=hub.mb_port)
         ob.run_in_thread()
         time.sleep(1)
         ob.on("recognizer_loop:utterance",
@@ -308,11 +345,11 @@ def test_v3_noise_handshake_and_encrypted_roundtrip(hub):
 def test_wrong_password_fails_fast(hub):
     hub.set_config(min_protocol_version=2)
     hub.start_core()
-    assert _wait_port(WS_PORT)
+    assert _wait_port(hub.ws_port)
     time.sleep(1)
 
     with pytest.raises(Exception):
-        _connect(STRONG_KEY, "WRONG-passw0rd-Zzz!!", retries=2)
+        _connect(hub, STRONG_KEY, "WRONG-passw0rd-Zzz!!", retries=2)
     assert "Noise session established" not in hub.core_log()
 
 
@@ -338,7 +375,7 @@ def test_runtime_backstop_refuses_weak_db_password(hub):
     hub.allow_msg("recognizer_loop:utterance", 2)
     hub.set_config(min_protocol_version=2)
     hub.start_core()
-    assert _wait_port(WS_PORT)
+    assert _wait_port(hub.ws_port)
     time.sleep(1)
 
     # the client must also be allowed to build a weak-password handshake locally
@@ -346,7 +383,7 @@ def test_runtime_backstop_refuses_weak_db_password(hub):
     try:
         refused = False
         try:
-            c = _connect(WEAK_KEY, WEAK_PW, retries=1)
+            c = _connect(hub, WEAK_KEY, WEAK_PW, retries=1)
             refused = c.noise_transport is None
             try:
                 c.close()
@@ -372,14 +409,14 @@ def test_runtime_backstop_refuses_weak_db_password(hub):
 # on the wire is that the hub advertises the configured floor in its HANDSHAKE
 # parameter message — the value a client uses to decide whether to proceed.
 # ---------------------------------------------------------------------------
-def _read_advertised_handshake(timeout=10):
+def _read_advertised_handshake(hub, timeout=10):
     """Open a raw websocket, read HELLO+HANDSHAKE param frames, return the
     HANDSHAKE payload dict the hub advertises (before any crypto)."""
     import pybase64
     from websocket import create_connection
     ua = "HiveMessageBusClientV0.0.1"
     auth = pybase64.b64encode(f"{ua}:{STRONG_KEY}".encode()).decode()
-    ws = create_connection(f"ws://127.0.0.1:{WS_PORT}?authorization={auth}",
+    ws = create_connection(f"ws://127.0.0.1:{hub.ws_port}?authorization={auth}",
                            timeout=timeout)
     try:
         end = time.time() + timeout
@@ -399,14 +436,167 @@ def _read_advertised_handshake(timeout=10):
 def test_min_protocol_version_advertised(hub):
     hub.set_config(min_protocol_version=2)
     hub.start_core(logname="core5.log")
-    assert _wait_port(WS_PORT)
+    assert _wait_port(hub.ws_port)
     time.sleep(1)
 
-    payload = _read_advertised_handshake()
+    payload = _read_advertised_handshake(hub)
     assert payload["min_protocol_version"] == 2, payload
     # a normal (password) client is v3-capable, so the hub offers up to v3
     assert payload["max_protocol_version"] == 3, payload
     assert payload.get("noise"), "hub should advertise Noise patterns/suites at v3"
+
+
+# ---------------------------------------------------------------------------
+# 5b. Noise handshake patterns (CRYPTO-1 §3.4.2)
+# ---------------------------------------------------------------------------
+def test_default_pattern_is_xxpsk2(hub):
+    """CRYPTO-1 §3.4.2 — XXpsk2 is the mandatory default. A fresh (un-pinned)
+    client is offered exactly XXpsk2 as the preferred pattern (KKpsk0 is only
+    offered once the client's static key has been pinned by a prior handshake)."""
+    hub.set_config(min_protocol_version=2)
+    hub.start_core(logname="core_xx.log")
+    assert _wait_port(hub.ws_port)
+    time.sleep(1)
+
+    payload = _read_advertised_handshake(hub)
+    patterns = (payload.get("noise") or {}).get("patterns") or []
+    assert "XXpsk2" in patterns, f"XXpsk2 must be advertised, got {patterns}"
+    assert patterns[0] == "XXpsk2", \
+        f"XXpsk2 must be the preferred (first) pattern for an un-pinned client, got {patterns}"
+    assert "KKpsk0" not in patterns, \
+        "KKpsk0 must NOT be offered to a client whose static key is not yet pinned"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="the negotiated Noise pattern is not observable through the harness: "
+           "hivemind-core logs only 'Noise session established' without the "
+           "pattern name and HiveMessageBusClient exposes no selected-pattern "
+           "attribute, so KKpsk0 preference on reconnection (CRYPTO-1 §3.4.2) "
+           "cannot be asserted on the wire.",
+)
+def test_kkpsk0_negotiated_on_reconnect(hub):
+    """CRYPTO-1 §3.4.2 — once both peers hold each other's static keys, KKpsk0
+    SHOULD be the negotiated pattern on reconnection. Encoded here so it flips
+    to a pass the moment the negotiated pattern becomes observable."""
+    hub.set_config(min_protocol_version=2)
+    hub.start_core(logname="core_kk.log")
+    assert _wait_port(hub.ws_port)
+    time.sleep(1)
+
+    c1 = _connect(hub, STRONG_KEY, STRONG_PW, retries=5)
+    try:
+        assert c1.noise_transport is not None
+    finally:
+        try:
+            c1.close()
+        except Exception:
+            pass
+
+    # Reconnect WITHOUT clearing pins so KKpsk0 becomes eligible.
+    c2 = HiveMessageBusClient(key=STRONG_KEY, password=STRONG_PW,
+                              host="127.0.0.1", port=hub.ws_port)
+    try:
+        c2.connect(site_id="e2e", handshake_max_retries=5)
+        selected = getattr(c2, "selected_noise_pattern", None)
+        assert selected == "KKpsk0", \
+            f"expected KKpsk0 on reconnect, observed {selected!r}"
+    finally:
+        try:
+            c2.close()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# 5c. Identity pinning — a contradicted static key aborts (CRYPTO-1 §3.4.5)
+# ---------------------------------------------------------------------------
+def test_noise_pinning_aborts_on_contradicted_key(hub, caplog):
+    """A pinned Noise static key that is later contradicted (simulated MITM)
+    MUST NOT be allowed to complete a session.
+
+    What this exercises, precisely: on reconnect, ``select_noise_options``
+    sees a pinned remote key and the server still offering ``KKpsk0``, so it
+    picks KKpsk0 with ``remote_pubkey=<bogus pinned key>``
+    (``hivemind_bus_client/protocol.py`` ``negotiate``/``start_noise_handshake``
+    call around line ~334-351). Handshaking KKpsk0 against the wrong static
+    key fails cryptographically inside ``start_noise_handshake``/
+    ``read_message``, which is caught and routed through ``_abort_noise``
+    (~line 427): ``noise_transport`` is cleared and the connection is closed,
+    but ``handshake_event`` is deliberately never set. ``wait_for_handshake``
+    then exhausts ``handshake_max_retries`` waiting on that event and raises
+    ``RuntimeError``, which propagates out of ``connect()``. That raise is the
+    guarantee this test checks — not the floor config.
+
+    The ``min_protocol_version=3`` floor config exercises no enforcement path:
+    hivemind-core's ``handle_handshake_message`` never reads it and the client
+    never reads it either — it is set here only to keep this hub's config
+    identical to the other v3-floor tests in this module, not because the
+    floor does anything. Note this test does NOT exercise CRYPTO-1 §3.4.5's
+    pinned-mismatch branch (``hivemind_bus_client/protocol.py`` ~399-402,
+    reached when the handshake completes but the resulting static key differs
+    from the pin) — that branch remains uncovered; a bogus pin fails earlier,
+    inside the KKpsk0 handshake itself, before that branch is ever reached.
+    """
+    hub.set_config(min_protocol_version=3)
+    hub.start_core(logname="core_pin.log")
+    assert _wait_port(hub.ws_port)
+    time.sleep(1)
+
+    # First connect pins the genuine server static key via TOFU.
+    c1 = _connect(hub, STRONG_KEY, STRONG_PW, retries=5)
+    try:
+        assert c1.noise_transport is not None, "baseline XXpsk2 must succeed"
+        pins = dict(c1.identity.pinned_noise_keys)
+        assert pins, "a completed XXpsk2 handshake must pin the server static key"
+    finally:
+        try:
+            c1.close()
+        except Exception:
+            pass
+
+    # Corrupt every pin to a bogus key (the MITM's key) and persist it.
+    bogus = "00" * 32
+    for node_id in pins:
+        c1.identity.pin_noise_key(node_id, bogus)
+    c1.identity.save()
+
+    # Reconnect WITHOUT clearing pins: the pinned (now bogus) key is fed to
+    # KKpsk0 as remote_pubkey, so the handshake fails authentication and
+    # connect() must raise rather than silently leaving a usable session.
+    c2 = HiveMessageBusClient(key=STRONG_KEY, password=STRONG_PW,
+                              host="127.0.0.1", port=hub.ws_port)
+    caplog.set_level(logging.ERROR)
+    raised = None
+    try:
+        with pytest.raises(Exception) as exc_info:
+            c2.connect(site_id="e2e", handshake_max_retries=1)
+        raised = exc_info.value
+    finally:
+        try:
+            c2.close()
+        except Exception:
+            pass
+
+    assert raised is not None, (
+        "a contradicted pinned static key MUST cause connect() to raise: "
+        "wait_for_handshake must exhaust its retries and raise since "
+        "_abort_noise never sets handshake_event")
+    assert not c2.handshake_event.is_set(), (
+        "handshake_event is the real authorization signal for a usable "
+        "session (wait_for_handshake blocks on it, connect() only proceeds "
+        "once it is set) — a contradicted pin must leave it unset")
+    assert c2.noise_transport is None, \
+        "no Noise transport may be left installed after an aborted handshake"
+    abort_evidence = (
+        "aborting protocol v3 connection" in caplog.text
+        or re.search(r"handshake|noise|abort", str(raised), re.I) is not None
+    )
+    assert abort_evidence, (
+        "the failure must be traceable to a handshake/noise abort (via the "
+        "client's 'aborting protocol v3 connection' log line or the raised "
+        "error), so this test cannot pass on an unrelated connect failure "
+        f"(e.g. a port/timeout issue); observed error: {raised!r}")
 
 
 # ---------------------------------------------------------------------------

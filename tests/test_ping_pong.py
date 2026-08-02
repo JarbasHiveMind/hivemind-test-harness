@@ -50,7 +50,7 @@ from hivescope.topology import TopologyBuilder
 
 # The huge-hive shape is owned by conftest. Import it instead of re-deriving it
 # from a copied RNG seed — a copy silently drifts if the fixture ever changes.
-from .conftest import _HUGE_HIVE_COUNTS, huge_hive_expected_satellites
+from .conftest import _HUGE_HIVE_COUNTS, huge_hive_expected_satellites, poll_until
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +143,42 @@ class TestPingReachesSatellite:
 
 class TestSatelliteRespondsToPing:
     """TS-PING-02 — satellite auto-replies with its own PING when it receives a PING."""
+
+    def test_responsive_ping_correlates_to_originating_flood_id(self, minimal_topology):
+        """The satellite's responsive PING correlates to the master's PING.
+
+        A bare "a ping came back" check would pass even if the response carried
+        an unrelated flood_id. The discovery protocol (this module's docstring)
+        requires the responder to echo the *originating* ``flood_id``, so the
+        master can tie a response to the exact flood it started. Assert the
+        ``hive.ping.received`` the master fires carries the SAME flood_id the
+        master originated AND names the responding satellite's peer.
+        """
+        b = minimal_topology
+        m0 = b.get_master("M0")
+        s0 = b.get_satellite("S0")
+
+        events = []
+        m0.agent_protocol.bus.on("hive.ping.received", events.append)
+
+        ping = _do_ping(m0)
+        sent_fid = _flood_id(ping)
+
+        poll_until(
+            lambda: any(e.data.get("flood_id") == sent_fid for e in events),
+            timeout=5,
+            message=f"no responsive PING correlated to originating flood "
+                    f"{sent_fid!r}; events={[e.data for e in events]}",
+        )
+        correlated = [e for e in events if e.data.get("flood_id") == sent_fid]
+        assert correlated, (
+            f"responsive PING must echo the originating flood_id {sent_fid!r}, "
+            f"got {[e.data.get('flood_id') for e in events]}"
+        )
+        assert correlated[0].data.get("peer") == s0.peer, (
+            f"correlated PING must name the responding satellite {s0.peer!r}, "
+            f"got {correlated[0].data.get('peer')!r}"
+        )
 
     def test_responsive_ping_updates_hive_mapper(self, minimal_topology):
         b = minimal_topology

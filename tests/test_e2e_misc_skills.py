@@ -237,20 +237,33 @@ class TestEdgeCases:
         for text in ["hello world", "hello world", "hello world"]:
             s0.send(make_utterance(text, ADAPT_PIPELINE, s0.shim.session_id))
 
-        # Wait for processing
-        time.sleep(5)
-        # Just verify no crash — at least one speak should appear
+        # Poll for the first speak instead of sleeping a fixed 5s: fast when the
+        # skill answers quickly, and it raises (not silently passes) if no speak
+        # ever lands. At least one speak proves the rapid burst was processed.
+        agent.wait_for_skill_emission(SpecMessage.SPEAK, count=1, timeout=10)
         speaks = [m for m in agent.injected if m.msg_type == SpecMessage.SPEAK]
         assert len(speaks) >= 1, "Rapid utterances: expected at least one speak"
 
     def test_unknown_message_type_ignored(self, misc_topology):
-        """TS-MI-08 — unknown message type sent to hub doesn't crash."""
+        """TS-MI-08 — an unregistered OVOS type is dropped, never injected, and
+        the hub stays responsive (MSG-1 §3: unroutable types are not processed)."""
         b, agent = misc_topology
-        agent.clear()
+        m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
+        agent.clear()
 
-        msg = Message("custom.unknown.event", {"data": "test"})
-        s0.send(msg)
+        s0.send(Message("custom.unknown.event", {"data": "test"}))
 
-        time.sleep(2)
-        # Should not crash — test passes if we get here
+        # The unknown type is not in allowed_types, so it must never reach the
+        # agent bus. Give a (bug-induced) delivery a real moment to land before
+        # asserting the negative, so the test cannot pass merely by racing it.
+        time.sleep(0.5)
+        agent.assert_skill_not_emitted("custom.unknown.event")
+
+        # The connection must survive an unroutable message: S0 is still a
+        # client and a subsequent *allowed* utterance is still handled end-to-end.
+        assert s0.peer in m0.hm_protocol.clients, \
+            "An unknown message type must not disconnect the satellite"
+        agent.clear()
+        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
+        agent.wait_for_skill_emission("ovos.utterance.handled", timeout=30)
