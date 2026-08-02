@@ -27,14 +27,26 @@ jobs:
         version: "latest"
 
     - name: Install dependencies
+      # Reproducible tooling, floating HiveMind stack: `uv export --frozen`
+      # reads pinned+hashed versions straight out of the committed uv.lock
+      # (never re-resolves it) for the dev-tooling extra (pytest and friends
+      # — packages with no reason to track a moving target) and feeds them in
+      # as a pip constraints file. The actual HiveMind stack (hivescope,
+      # hivemind-core, hivemind_bus_client, poorman-handshake — the repo's
+      # base dependencies) is deliberately NOT in uv.lock and stays on `-e .`'s
+      # normal floating resolve: those comments in pyproject.toml track
+      # specific prerelease/dev-channel floors that move often, and locking
+      # them would silently pin CI to a stale floor instead of testing dev.
+      # --prerelease=allow: the HiveMind 2.x stack (hivemind-core 4.6.x /
+      # hivemind-bus-client 0.9.x on ovos-bus-client 2.x) is prerelease-only
+      # on PyPI.
+      # The `ovos` extra is intentionally left out of uv.lock (ovos-skill-date-time
+      # 0.0.1 has a broken sdist that makes it un-lockable) — see the ovos-e2e
+      # job below, which still installs it with a plain floating resolve.
       run: |
         uv venv
-        # --pre: the HiveMind 2.x stack (hivemind-core 4.6.x / hivemind-bus-client
-        # 0.9.x on ovos-bus-client 2.x) is prerelease-only on PyPI. hivescope
-        # >=0.5.2a1 (pinned in pyproject) carries the loopback + ACL re-lookup
-        # fixes and floors the 2.x stack, so it resolves straight from PyPI.
-        uv pip install --prerelease=allow -e .[dev]
-        uv pip install pytest-asyncio
+        uv export --frozen --extra dev --no-emit-project -o /tmp/hth-requirements.txt
+        uv pip install --prerelease=allow -c /tmp/hth-requirements.txt -e .[dev]
 
     # In-process protocol/topology layer. The OVOS skill-execution, JS,
     # MicroPython/embedded, and matplotlib-plot tests have their own jobs with
@@ -174,10 +186,12 @@ jobs:
         version: "latest"
 
     - name: Install dependencies
+      # See the harness-tests job above for why this installs from a frozen
+      # `uv export` of the committed uv.lock instead of a floating resolve.
       run: |
         uv venv
-        uv pip install --prerelease=allow -e .[dev]
-        uv pip install pytest-asyncio
+        uv export --frozen --extra dev --no-emit-project -o /tmp/hth-requirements.txt
+        uv pip install --prerelease=allow -c /tmp/hth-requirements.txt -e .[dev]
 
     - name: Run embedded interop tests
       # The embedded modules importorskip the MicroPython client, which is not
@@ -236,10 +250,12 @@ jobs:
         version: "latest"
 
     - name: Install dependencies
+      # See the harness-tests job above for why this installs from a frozen
+      # `uv export` of the committed uv.lock instead of a floating resolve.
       run: |
         uv venv
-        uv pip install --prerelease=allow -e .[dev]
-        uv pip install pytest-asyncio
+        uv export --frozen --extra dev --no-emit-project -o /tmp/hth-requirements.txt
+        uv pip install --prerelease=allow -c /tmp/hth-requirements.txt -e .[dev]
 
     - name: Run MicroPython client E2E tests
       if: steps.micropython_checkout.outcome == 'success'
@@ -292,9 +308,12 @@ jobs:
         version: "latest"
 
     - name: Install Python dependencies
+      # See the harness-tests job above for why this installs from a frozen
+      # `uv export` of the committed uv.lock instead of a floating resolve.
       run: |
         uv venv
-        uv pip install --prerelease=allow -e .[dev]
+        uv export --frozen --extra dev --no-emit-project -o /tmp/hth-requirements.txt
+        uv pip install --prerelease=allow -c /tmp/hth-requirements.txt -e .[dev]
 
     - name: Run JS E2E tests
       env:
