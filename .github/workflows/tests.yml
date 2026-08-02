@@ -76,11 +76,11 @@ jobs:
     # ovos extra (ovos-core[plugins] + intent-pipeline plugins + test skills)
     # and the native FANN lib that ovos-padatious links against.
     # Sharded: the serial MiniCroft boots put the whole suite past the
-    # 90-minute cap in one job; two alphabetical halves run in parallel.
+    # 90-minute cap in one job; six shards run in parallel.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     runs-on: ubuntu-latest
     needs: harness-tests
     # Each module boots its own MiniCroft (up to a 180s READY budget) and runs
@@ -141,24 +141,34 @@ jobs:
         # needs a skill this job does not install guards itself with
         # skill_missing()/skipif and skips cleanly. Add an --ignore line here
         # only for a module that cannot run at all, and say why.
-        # Rebalanced after shard 1 blew the 90-minute cap: the ask_yesno_selection
-        # module (xfailed, but still burning its per-test timeouts) and the
-        # converse module move to the lighter shard 2 (which ran in ~15min).
-        # (test_e2e_get_response.py is not xfailed and passes; it is just a
-        # heavy module, unrelated to this rebalance.)
-        # Four balanced shards. Each e2e module boots a MiniCroft (~180s READY
-        # + serial handlers), so the heavy cluster (acl/admin/converse*/
-        # get_response/stop/scheduler/volume_phal) is spread across shards to
-        # stay under the 90-min cap — three shards still overran with the whole
-        # a-g cluster on one. test/test_e2e_sharding.py asserts every
-        # tests/test_e2e_*.py is listed in exactly one shard, so a new module
-        # cannot silently run in no job (the original bug) despite the explicit
-        # lists.
+        # Rebalanced again: shard 3 (misc_skills/multi_satellite/ocp/
+        # relay_acl/relay_skills/ask_yesno_selection/solver_harness) blew the
+        # 90-minute cap and got CANCELLED. Its per-test evidence (run
+        # 30728800319, job "ovos-e2e (3)") shows test_e2e_ask_yesno_selection.py
+        # is the dominant cost: 11 get_response-over-HiveMind tests that never
+        # complete and each burn up to the full --timeout=300 per-test budget,
+        # so the module alone can cost up to ~55 minutes worst case. Stacking
+        # that on the same shard as the other slow modules (multi_satellite's
+        # concurrent-utterance waits, and the relay_acl/relay_skills chains)
+        # is what pushed the shard over the cap.
+        #
+        # Six shards now. ask_yesno_selection runs alone on shard 3 (its
+        # worst case, ~55min, still has margin under 90min even with MiniCroft
+        # boot on top). multi_satellite moves to shard 4 and the relay_* pair
+        # moves to shard 5 — each on its own shard, away from ask_yesno_selection
+        # and from each other, per the "spread the heavy cluster" requirement.
+        # misc_skills/ocp/solver_harness (cheap in isolation — see the run
+        # above, where they finished in seconds) backfill shard 4 so it is not
+        # near-idle. test/test_e2e_sharding.py asserts every tests/test_e2e_*.py
+        # is listed in exactly one shard, so a new module cannot silently run
+        # in no job (the original bug) despite the explicit lists.
         case "${{ matrix.shard }}" in
           1) FILES="tests/test_e2e_acl_skills.py tests/test_e2e_admin_broadcast.py tests/test_e2e_binary_skill.py tests/test_e2e_lang.py tests/test_e2e_converse.py tests/test_helloworld_hivemind.py tests/test_ovoscope_integration.py" ;;
           2) FILES="tests/test_e2e_converse_advanced.py tests/test_e2e_get_response.py tests/test_protocol_v3_noise.py" ;;
-          3) FILES="tests/test_e2e_misc_skills.py tests/test_e2e_multi_satellite.py tests/test_e2e_ocp.py tests/test_e2e_relay_acl.py tests/test_e2e_relay_skills.py tests/test_e2e_ask_yesno_selection.py tests/test_solver_harness.py" ;;
-          4) FILES="tests/test_e2e_scheduler.py tests/test_e2e_session.py tests/test_e2e_shared_bus.py tests/test_e2e_skills.py tests/test_e2e_stop.py tests/test_e2e_volume_phal.py tests/test_topology_plots.py" ;;
+          3) FILES="tests/test_e2e_ask_yesno_selection.py" ;;
+          4) FILES="tests/test_e2e_misc_skills.py tests/test_e2e_multi_satellite.py tests/test_e2e_ocp.py tests/test_solver_harness.py" ;;
+          5) FILES="tests/test_e2e_relay_acl.py tests/test_e2e_relay_skills.py" ;;
+          6) FILES="tests/test_e2e_scheduler.py tests/test_e2e_session.py tests/test_e2e_shared_bus.py tests/test_e2e_skills.py tests/test_e2e_stop.py tests/test_e2e_volume_phal.py tests/test_topology_plots.py" ;;
         esac
         .venv/bin/python -m pytest $FILES \
           -p no:ovoscope --timeout=300 -v --tb=short
