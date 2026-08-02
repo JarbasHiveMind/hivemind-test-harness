@@ -2,7 +2,7 @@
 
 The test harness provides two main actor types that simulate HiveMind protocol participants.
 
-- **Source File**: `hivemind-test-harness/hivemind_test_harness/node.py`
+- **Source File**: `hivescope/node.py` (in the [hivescope](https://github.com/JarbasHiveMind/hivescope) repo — the harness itself only depends on it, see `README.md#dependency-hivescope`)
 
 ## 1. `MasterNode`
 Wraps a real `HiveMindListenerProtocol` but swaps the standard network and agent backends for test versions.

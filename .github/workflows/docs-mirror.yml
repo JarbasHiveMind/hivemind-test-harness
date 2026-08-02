@@ -1,0 +1,75 @@
+name: Mirror docs to hivescope
+
+# api.md and nodes.md document classes that actually live in the hivescope
+# package (see docs/api.md header and README.md#dependency-hivescope). This
+# repo is the canonical place they get *written* (alongside the tests that
+# exercise those classes), but hivescope's own docs/ is where readers of that
+# package look for them. Mirror on every dev push that touches docs/, opening
+# a draft PR against hivescope instead of pushing directly — a human reviews
+# and merges it there, same as every other cross-repo change in this org.
+#
+# ASSUMPTION: hivescope has a docs/ directory at its repo root and accepts
+# plain markdown files copied in as-is (true as of this workflow's authoring
+# — see JarbasHiveMind/hivescope/docs/). If hivescope's docs mechanism changes
+# (e.g. a generated API-doc site), update the copy step below accordingly.
+
+on:
+  push:
+    branches: [ dev ]
+    paths:
+      - 'docs/api.md'
+      - 'docs/nodes.md'
+  workflow_dispatch: {}
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout hivemind-test-harness
+      uses: actions/checkout@v4
+      with:
+        path: hivemind-test-harness
+
+    - name: Checkout hivescope
+      id: hivescope_checkout
+      continue-on-error: true
+      uses: actions/checkout@v4
+      with:
+        repository: JarbasHiveMind/hivescope
+        ref: dev
+        path: hivescope
+        token: ${{ secrets.HIVEMIND_PAT || secrets.GITHUB_TOKEN }}
+
+    - name: Copy mirrored docs
+      if: steps.hivescope_checkout.outcome == 'success'
+      run: |
+        mkdir -p hivescope/docs
+        cp hivemind-test-harness/docs/api.md hivescope/docs/test-harness-api.md
+        cp hivemind-test-harness/docs/nodes.md hivescope/docs/test-harness-nodes.md
+
+    - name: Open draft PR against hivescope
+      if: steps.hivescope_checkout.outcome == 'success'
+      env:
+        GH_TOKEN: ${{ secrets.HIVEMIND_PAT || secrets.GITHUB_TOKEN }}
+      run: |
+        cd hivescope
+        git config user.name "JarbasAi"
+        git config user.email "jarbasai@mailfence.com"
+        git checkout -b "docs/mirror-test-harness-${{ github.sha }}"
+        git add docs/test-harness-api.md docs/test-harness-nodes.md
+        if git diff --cached --quiet; then
+          echo "No doc changes to mirror."
+          exit 0
+        fi
+        git commit -m "docs: mirror hivemind-test-harness API/node docs" \
+          -m "Auto-mirrored from JarbasHiveMind/hivemind-test-harness@${{ github.sha }}."
+        git push origin "docs/mirror-test-harness-${{ github.sha }}"
+        gh pr create --draft \
+          --title "docs: mirror hivemind-test-harness API/node docs" \
+          --body "Auto-mirrored from JarbasHiveMind/hivemind-test-harness@${{ github.sha }}. These classes live in hivescope; this keeps hivescope's docs in sync with how the test harness describes them." \
+          --base dev
+
+    - name: Report that hivescope was unavailable
+      if: steps.hivescope_checkout.outcome != 'success'
+      run: |
+        echo "::warning title=Docs mirror did not run::Could not check out JarbasHiveMind/hivescope. Add a HIVEMIND_PAT secret with write access to enable the mirror."

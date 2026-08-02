@@ -1,10 +1,15 @@
 # API Reference: hivemind-test-harness
 
+> These classes live in the [hivescope](https://github.com/JarbasHiveMind/hivescope)
+> package (`hivescope>=0.6.2a1`, see `pyproject.toml`), not in this repo. This
+> page mirrors them here for convenience; hivescope's own docs are the source
+> of truth and take precedence on any conflict.
+
 ---
 
 ## `TopologyBuilder`
 
-`class TopologyBuilder`: hivemind_test_harness/topology.py:87
+`class TopologyBuilder`: hivescope/topology.py:92
 
 Assembles and wires `MasterNode`, `SatelliteNode`, and `RelayNode` instances into a testable network.
 
@@ -22,7 +27,7 @@ Assembles and wires `MasterNode`, `SatelliteNode`, and `RelayNode` instances int
 
 ## `MasterNode`
 
-`class MasterNode`: hivemind_test_harness/node.py:84
+`class MasterNode`: hivescope/node.py:98
 
 Wraps a real `HiveMindListenerProtocol` with test plugin backends.
 
@@ -49,7 +54,7 @@ Wraps a real `HiveMindListenerProtocol` with test plugin backends.
 
 ## `SatelliteNode`
 
-`class SatelliteNode`: hivemind_test_harness/node.py:171
+`class SatelliteNode`: hivescope/node.py:228
 
 Simulates a HiveMind satellite client.
 
@@ -79,7 +84,7 @@ Simulates a HiveMind satellite client.
 
 ## `RelayNode`
 
-`class RelayNode`: hivemind_test_harness/topology.py:46
+`class RelayNode`: hivescope/topology.py:45
 
 Dual-role node: satellite (upstream) + master (downstream). Created by `TopologyBuilder.add_relay()`, which returns `(SatelliteNode, MasterNode)`.
 
@@ -87,7 +92,7 @@ Dual-role node: satellite (upstream) + master (downstream). Created by `Topology
 
 ## `MessageRecorder`
 
-`class MessageRecorder`: hivemind_test_harness/recorder.py
+`class MessageRecorder`: hivescope/recorder.py:24
 
 Attached to every node. Captures all messages at protocol entry/exit points.
 
@@ -119,7 +124,7 @@ Attached to every node. Captures all messages at protocol entry/exit points.
 
 ## `TestAgentProtocol`
 
-`class TestAgentProtocol`: hivemind_test_harness/plugins/agent.py:27
+`class TestAgentProtocol`: hivescope/plugins/agent.py:30
 
 `AgentProtocol` backed by `FakeBus`. Records injected messages and implements reverse routing (ported verbatim from `OVOSProtocol`).
 
@@ -141,7 +146,7 @@ Attached to every node. Captures all messages at protocol entry/exit points.
 
 ## `TestBinaryProtocol`
 
-`class TestBinaryProtocol`: hivemind_test_harness/plugins/binary.py:23
+`class TestBinaryProtocol`: hivescope/plugins/binary.py:25
 
 Records all binary handler invocations.
 
@@ -173,7 +178,7 @@ Records all binary handler invocations.
 
 ## `TestNetworkProtocol`
 
-`class TestNetworkProtocol`: hivemind_test_harness/plugins/network.py:18
+`class TestNetworkProtocol`: hivescope/plugins/network.py:21
 
 Socketless `NetworkProtocol`. `run()` is a no-op.
 
@@ -186,7 +191,7 @@ Socketless `NetworkProtocol`. `run()` is a no-op.
 
 ## `InProcessHiveShim`
 
-`class InProcessHiveShim`: hivemind_test_harness/node.py:35
+`class InProcessHiveShim`: hivescope/node.py:39
 
 Minimal stand-in for `HiveMessageBusClient` that allows `HiveMindSlaveProtocol` to operate in-process without a WebSocket connection.
 
