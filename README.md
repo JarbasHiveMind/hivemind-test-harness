@@ -114,6 +114,10 @@ pytest tests/test_e2e_skills.py -v
 The JavaScript e2e test (`test_js_e2e.py`) requires Node.js and uses
 `test_helpers/js_e2e_driver.mjs`.
 
+One guard test lives outside `tests/`: `test/test_e2e_sharding.py` asserts that every
+`tests/test_e2e_*.py` module appears in exactly one `ovos-e2e` CI shard. Run it with
+`pytest test/`.
+
 ---
 
 ## When to Add a Test Here vs in the Owning Repo

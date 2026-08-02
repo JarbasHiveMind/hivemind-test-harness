@@ -9,25 +9,32 @@
 
 ## `TopologyBuilder`
 
-`class TopologyBuilder`: hivescope/topology.py:92
+`class TopologyBuilder`: `hivescope/topology.py`
 
 Assembles and wires `MasterNode`, `SatelliteNode`, and `RelayNode` instances into a testable network.
 
 | Method | Signature | Description |
 |---|---|---|
 | `add_master` | `(name: str, **kwargs) -> MasterNode` | Create and register a master node |
-| `add_satellite` | `(name: str, upstream: MasterNode, **kwargs) -> SatelliteNode` | Create a satellite wired to `upstream` |
-| `add_relay` | `(name: str, upstream: MasterNode, **kwargs) -> tuple[SatelliteNode, MasterNode]` | Create a dual-role relay node (satellite upstream + master downstream) |
+| `add_satellite` | `(name: str, upstream: MasterNode \| RelayNode, shared_bus=False, **kwargs) -> SatelliteNode` | Create a satellite wired to `upstream` |
+| `add_relay` | `(name: str, upstream: MasterNode \| RelayNode, **kwargs) -> RelayNode` | Create a dual-role relay node. Read `relay.listener` for the master side that downstream nodes attach to |
 | `get_master` | `(name: str) -> MasterNode` | Retrieve master by name |
 | `get_satellite` | `(name: str) -> SatelliteNode` | Retrieve satellite by name |
+| `get_relay` | `(name: str) -> RelayNode` | Retrieve relay by name |
 | `start_all` | `() -> None` | Connect all registered satellites to their masters (triggers handshake) |
 | `stop_all` | `() -> None` | Disconnect all satellites and clean up |
+
+| Attribute | Type | Description |
+|---|---|---|
+| `masters` | `dict[str, MasterNode]` | Registered masters by name |
+| `satellites` | `dict[str, SatelliteNode]` | Registered satellites by name |
+| `relays` | `dict[str, RelayNode]` | Registered relays by name |
 
 ---
 
 ## `MasterNode`
 
-`class MasterNode`: hivescope/node.py:98
+`class MasterNode`: `hivescope/node.py`
 
 Wraps a real `HiveMindListenerProtocol` with test plugin backends.
 
@@ -49,12 +56,15 @@ Wraps a real `HiveMindListenerProtocol` with test plugin backends.
 | `send_to_satellite` | `(peer: str, message: HiveMessage) -> None` | Send directly to a connected client |
 | `emit_on_bus` | `(message: Message) -> None` | Simulate OVOS skill emitting a response |
 | `wait_for` | `(msg_type: str, direction="in", timeout=5.0) -> RecordedMessage` | Block until message recorded |
+| `send_to_all` | `(message: HiveMessage) -> None` | Send to every connected client |
+| `connected_peers` | `() -> list[str]` | Peer ids of the live connections |
+| `cleanup` | `() -> None` | Tear the node down |
 
 ---
 
 ## `SatelliteNode`
 
-`class SatelliteNode`: hivescope/node.py:228
+`class SatelliteNode`: `hivescope/node.py`
 
 Simulates a HiveMind satellite client.
 
@@ -75,24 +85,41 @@ Simulates a HiveMind satellite client.
 | `send` | `(message: HiveMessage | Message) -> None` | Send upstream. `Message` is auto-wrapped as BUS |
 | `wait_for` | `(msg_type: str, timeout=5.0) -> RecordedMessage` | Block until inbound message recorded |
 | `wait_for_bus` | `(ovos_type: str, timeout=5.0) -> Message` | Block until OVOS message arrives on `internal_bus` |
+| `wait_for_handshake` | `(timeout=5.0) -> None` | Block until the handshake completes |
+| `disconnect` | `() -> None` | Drop the upstream connection |
+| `cleanup` | `() -> None` | Tear the node down |
 
 **Properties via `_connection`:**
-- `satellite._connection.peer`: the peer ID assigned by the master after handshake
+- `satellite.peer`: the peer ID assigned by the master after handshake
 - `satellite.identity.access_key`: the API key used for authentication
 
 ---
 
 ## `RelayNode`
 
-`class RelayNode`: hivescope/topology.py:45
+`class RelayNode`: `hivescope/topology.py`
 
-Dual-role node: satellite (upstream) + master (downstream). Created by `TopologyBuilder.add_relay()`, which returns `(SatelliteNode, MasterNode)`.
+Dual-role node: satellite (upstream) + master (downstream). `TopologyBuilder.add_relay()`
+returns one.
+
+| Attribute | Type | Description |
+|---|---|---|
+| `listener` | `HiveMindListenerProtocol` owner | The master side. Pass it as `upstream` for downstream nodes |
+| `slave_protocol` | `HiveMindSlaveProtocol` | The satellite side, pointed at the upstream master |
+| `hm_protocol` | `HiveMindListenerProtocol` | The relay's own listener protocol |
+| `identity` | `NodeIdentity` | Cryptographic identity |
+| `peer` | `str` | Peer id of the relay |
+
+```python
+relay = builder.add_relay("R1", upstream=builder.get_master("M0"))
+builder.add_satellite("S0", upstream=relay.listener)
+```
 
 ---
 
 ## `MessageRecorder`
 
-`class MessageRecorder`: hivescope/recorder.py:24
+`class MessageRecorder`: `hivescope/recorder.py`
 
 Attached to every node. Captures all messages at protocol entry/exit points.
 
@@ -104,10 +131,11 @@ Attached to every node. Captures all messages at protocol entry/exit points.
 | `assert_not_received` | `(msg_type, direction=None) -> None` | Assert no matches exist |
 | `received` | `(msg_type, direction=None) -> list[RecordedMessage]` | Return all matching records |
 | `clear` | `() -> None` | Reset all records |
+| `snapshot` | `() -> list[RecordedMessage]` | Copy of the records as they stand now |
 
 | Attribute | Type | Description |
 |---|---|---|
-| `records` | `list[RecordedMessage]` | All captured records |
+| `messages` | `list[RecordedMessage]` | All captured records. `records` is an alias |
 | `name` | `str` | Node name (for assertion error messages) |
 
 ### `RecordedMessage`
@@ -124,7 +152,7 @@ Attached to every node. Captures all messages at protocol entry/exit points.
 
 ## `TestAgentProtocol`
 
-`class TestAgentProtocol`: hivescope/plugins/agent.py:30
+`class TestAgentProtocol`: `hivescope/plugins/agent.py`
 
 `AgentProtocol` backed by `FakeBus`. Records injected messages and implements reverse routing (ported verbatim from `OVOSProtocol`).
 
@@ -141,12 +169,15 @@ Attached to every node. Captures all messages at protocol entry/exit points.
 | `assert_injected` | `(msg_type: str, count=1) -> None` | Assert count of injected messages |
 | `assert_not_injected` | `(msg_type: str) -> None` | Assert message type was NOT injected |
 | `clear` | `() -> None` | Reset `injected` list |
+| `natural_language_query` | `(utterance: str, lang: str) -> Iterator[str \| None]` | QUERY/CASCADE seam. Yields answer chunks, then `None` |
+| `answer_query` | `(utterance, answers)` | Queue the answers a later QUERY gets |
+| `shutdown` | `() -> None` | Tear the agent down |
 
 ---
 
 ## `TestBinaryProtocol`
 
-`class TestBinaryProtocol`: hivescope/plugins/binary.py:25
+`class TestBinaryProtocol`: `hivescope/plugins/binary.py`
 
 Records all binary handler invocations.
 
@@ -163,7 +194,8 @@ Records all binary handler invocations.
 | `handle_receive_tts` | `(bin_data, utterance, lang, file_name, client)` | Records `"receive_tts"` |
 | `handle_receive_file` | `(bin_data, file_name, client)` | Records `"receive_file"` |
 | `assert_called` | `(handler: str, count=1) -> None` | Assert handler was called `count` times |
-| `last_call` | `(handler: str) -> BinaryCall | None` | Last call to named handler |
+| `last_call` | `(handler: str) -> BinaryCall \| None` | Last call to named handler |
+| `assert_not_called` | `(handler: str) -> None` | Assert the handler was never called |
 | `clear` | `() -> None` | Reset `calls` list |
 
 ### `BinaryCall`
@@ -178,7 +210,7 @@ Records all binary handler invocations.
 
 ## `TestNetworkProtocol`
 
-`class TestNetworkProtocol`: hivescope/plugins/network.py:21
+`class TestNetworkProtocol`: `hivescope/plugins/network.py`
 
 Socketless `NetworkProtocol`. `run()` is a no-op.
 
@@ -191,7 +223,7 @@ Socketless `NetworkProtocol`. `run()` is a no-op.
 
 ## `InProcessHiveShim`
 
-`class InProcessHiveShim`: hivescope/node.py:39
+`class InProcessHiveShim`: `hivescope/node.py`
 
 Minimal stand-in for `HiveMessageBusClient` that allows `HiveMindSlaveProtocol` to operate in-process without a WebSocket connection.
 

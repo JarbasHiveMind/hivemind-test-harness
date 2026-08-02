@@ -24,7 +24,7 @@ is present — point `HIVEMIND_MICROPYTHON_CLIENT` at it, or CI's
 | PROPAGATE | `propagate` | satellite→master→siblings+upstream | Fan-out + escalate combined | tested | `test_propagate.py` |
 | ESCALATE | `escalate` | satellite→masters-only | Forward up authority chain | tested | `test_escalate.py` |
 | INTERCOM | `intercom` | satellite→master→target-satellite | RSA-encrypted peer-to-peer routing | tested | `test_intercom.py` |
-| PING | `ping` | both | Network topology discovery | tested | `test_ping_pong.py` (49 tests), `test_ping_exactly_once.py` (11 tests) |
+| PING | `ping` | both | Network topology discovery | tested | `test_ping_pong.py` (50 tests), `test_ping_exactly_once.py` (11 tests) |
 | QUERY | `query` | upstream+response | Like ESCALATE but stops at first responder | tested | `test_query.py` (6 tests) |
 | CASCADE | `cascade` | both+response | Like PROPAGATE but expects responses from all | tested | `test_cascade.py` (8 tests) |
 | RENDEZVOUS | `rendezvous` | reserved | Rendezvous-node peer discovery; also the harness stand-in for an unhandled inner payload | not implemented | `test_unimplemented_types.py`, `test_propagate.py`, `test_escalate.py` |
@@ -72,7 +72,7 @@ QUERY and CASCADE are now fully implemented with dedicated handlers and test sui
 | `can_escalate=False` | tested | `test_escalate.py::TestEscalateRespectsCantEscalate` |
 | `can_propagate=False` | tested | `test_propagate.py::TestPropagateCannotPropagate` |
 | `is_admin` broadcast check | tested | `test_broadcast.py::TestBroadcastFromNonAdmin` |
-| `msg_blacklist` (outbound) | removed upstream | hivemind-core is whitelist-only; `Client.message_blacklist` no longer exists. `register_satellite(msg_blacklist=...)` is accepted and ignored. The old `test_acl.py::TestMessageBlacklist` asserted removed behaviour and was deleted (see the comment at `tests/test_acl.py:10`). |
+| `msg_blacklist` (outbound) | removed upstream | hivemind-core is whitelist-only; `Client.message_blacklist` no longer exists. `register_satellite(msg_blacklist=...)` is accepted and ignored. The old `test_acl.py::TestMessageBlacklist` asserted removed behaviour and was deleted (see the comment at `tests/test_acl.py`). |
 | `skill_blacklist` (downstream delivery) | tested | `test_acl.py::TestSkillBlacklist` (session injection) + `test_e2e_acl_skills.py` (live OVOS enforcement) |
 | `intent_blacklist` (downstream delivery) | tested | `test_acl.py::TestIntentBlacklist` (session injection) + `test_e2e_acl_skills.py` (live OVOS enforcement) |
 | `allowed_types` (admission whitelist) | tested | `test_bus.py::TestAllowedTypes`, `test_acl.py::TestAllowedTypes` — including the `hive.policy.denied` response with deny code `acl_disallowed_type` |
@@ -129,7 +129,7 @@ Counts from `pytest tests --collect-only -q`.
 | `test_hivemind_bus_client_e2e.py` | 5 | Real hivemind-bus-client over a loopback websocket |
 | `test_intercom.py` | 4 | Peer-to-peer RSA-encrypted routing |
 | `test_ping_exactly_once.py` | 11 | PING delivered exactly once per node across relays |
-| `test_ping_pong.py` | 49 | PING network topology discovery |
+| `test_ping_pong.py` | 50 | PING network topology discovery |
 | `test_propagate.py` | 6 | Fan-out + escalate, can_propagate ACL |
 | `test_protocol_fixes.py` | 8 | Regression tests for bugs fixed in core/client |
 | `test_protocol_rules.py` | 14 | Protocol invariant validation |
@@ -165,7 +165,7 @@ Counts from `pytest tests --collect-only -q`.
 | `test_e2e_volume_phal.py` | 13 | Volume skill against a mock PHAL on the satellite |
 | `test_helloworld_hivemind.py` | 15 | Full utterance→skill→speak round-trip |
 | `test_ovoscope_integration.py` | 9 | OvoscopeAgentProtocol with a real IntentService |
-| `test_protocol_v3_noise.py` | 7 | Protocol v3 Noise XXpsk2 against a REAL hivemind-core subprocess |
+| `test_protocol_v3_noise.py` | 10 | Protocol v3 Noise XXpsk2 against a REAL hivemind-core subprocess |
 | `test_solver_harness.py` | 5 | HiveMindSolver plugin harness |
 | `test_topology_plots.py` | 12 | Topology + discovery plot rendering |
 
@@ -182,6 +182,14 @@ Counts from `pytest tests --collect-only -q`.
 The four embedded modules call `pytest.importorskip` on the MicroPython client
 package, so they skip cleanly when that checkout is absent.
 
+### CI guard (directory `test/`)
+
+| File | Tests | Purpose |
+|---|---|---|
+| `test/test_e2e_sharding.py` | 1 | Asserts every `tests/test_e2e_*.py` appears in exactly one `ovos-e2e` shard |
+
+This module sits in `test/`, not `tests/`. Run it with `pytest test/`.
+
 ---
 
 ## Bugs Fixed in External Repos (with regression tests)
@@ -190,15 +198,15 @@ All bugs were fixed directly in the source repos, not monkey-patched in the test
 
 | Bug | Repo | File | Regression test |
 |---|---|---|---|
-| `bool(s.read(1))` always True (should be `.bool`) | hivemind-websocket-client | `serialization.py:103` | `test/test_serialization.py::TestDecodeBitstringRegressions` |
+| `bool(s.read(1))` always True (should be `.bool`) | hivemind-websocket-client | `serialization.py` | `test/test_serialization.py::TestDecodeBitstringRegressions` |
 | `HiveMessage.__init__` missing nested-HiveMessage normalization | hivemind-websocket-client | `message.py` | `test/test_message.py::TestHiveMessageInitNormalization` |
-| `message.serialize()` returns str but MycroftMessage requires dict | hivemind-websocket-client | `protocol.py:248,271` | `test/test_message.py` |
-| `clients = {}` class-level dict shared across all instances | hivemind-core | `protocol.py:218` | `test/unittests/test_protocol_regressions.py::TestClientsInstanceDict` |
-| `payload` (HiveMessage) passed as Message `data=` (requires dict) | hivemind-core | `protocol.py:725,679` | `test/unittests/test_protocol_regressions.py` |
-| `message.payload.serialize()` fails for dict payload | hivemind-core | `protocol.py:150` | `test/unittests/test_protocol_regressions.py` |
+| `message.serialize()` returns str but MycroftMessage requires dict | hivemind-websocket-client | `protocol.py` | `test/test_message.py` |
+| `clients = {}` class-level dict shared across all instances | hivemind-core | `protocol.py` | `test/unittests/test_protocol_regressions.py::TestClientsInstanceDict` |
+| `payload` (HiveMessage) passed as Message `data=` (requires dict) | hivemind-core | `protocol.py` | `test/unittests/test_protocol_regressions.py` |
+| `message.payload.serialize()` fails for dict payload | hivemind-core | `protocol.py` | `test/unittests/test_protocol_regressions.py` |
 | `handle_broadcast_message` forwarded inner payload instead of BROADCAST wrapper | hivemind-core | `protocol.py` | `test/unittests/test_protocol_regressions.py::TestHandleBroadcastForwardsBroadcastWrapper` |
 | `handle_propagate_message` forwarded inner payload instead of PROPAGATE wrapper | hivemind-core | `protocol.py` | `test/unittests/test_protocol_regressions.py::TestHandlePropagateForwardsPropagateWrapper` |
-| `handle_broadcast`/`handle_propagate` passed outer wrapper to `handle_intercom` (recursion) | hivemind-websocket-client | `protocol.py:237,256` | `test/test_protocol_regressions.py::TestHandleBroadcastIntercomRecursion` |
+| `handle_broadcast`/`handle_propagate` passed outer wrapper to `handle_intercom` (recursion) | hivemind-websocket-client | `protocol.py` | `test/test_protocol_regressions.py::TestHandleBroadcastIntercomRecursion` |
 
 ---
 [← Architecture: HiveMind Test Harness](01-architecture.md) · [Home](index.md) · [Network Topologies →](03-topologies.md)
