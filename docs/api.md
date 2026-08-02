@@ -26,9 +26,9 @@ Assembles and wires `MasterNode`, `SatelliteNode`, and `RelayNode` instances int
 
 | Attribute | Type | Description |
 |---|---|---|
-| `masters` | `dict[str, MasterNode]` | Registered masters by name |
-| `satellites` | `dict[str, SatelliteNode]` | Registered satellites by name |
-| `relays` | `dict[str, RelayNode]` | Registered relays by name |
+| `masters` | `list[MasterNode]` | Registered masters |
+| `satellites` | `list[SatelliteNode]` | Registered satellites |
+| `relays` | `list[RelayNode]` | Registered relays |
 
 ---
 
