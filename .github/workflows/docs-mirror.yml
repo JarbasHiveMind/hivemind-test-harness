@@ -12,6 +12,11 @@ name: Mirror docs to hivescope
 # plain markdown files copied in as-is (true as of this workflow's authoring
 # — see JarbasHiveMind/hivescope/docs/). If hivescope's docs mechanism changes
 # (e.g. a generated API-doc site), update the copy step below accordingly.
+#
+# The default GITHUB_TOKEN cannot push branches or open PRs in a different
+# repo (JarbasHiveMind/hivescope), so this workflow requires a HIVEMIND_PAT
+# secret with write access there. Without it, the mirror cleanly skips
+# (see "Check for HIVEMIND_PAT" below) instead of failing.
 
 on:
   push:
@@ -25,37 +30,69 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
+    - name: Check for HIVEMIND_PAT
+      id: pat_check
+      run: |
+        if [ -z "${{ secrets.HIVEMIND_PAT }}" ]; then
+          echo "::warning title=Docs mirror skipped::HIVEMIND_PAT secret is not set, so this repo cannot push a branch or open a PR against JarbasHiveMind/hivescope. Add a HIVEMIND_PAT secret with write access there to enable the mirror. Skipping."
+          echo "has_pat=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_pat=true" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Checkout hivemind-test-harness
+      if: steps.pat_check.outputs.has_pat == 'true'
       uses: actions/checkout@v4
       with:
         path: hivemind-test-harness
+        persist-credentials: false
 
     - name: Checkout hivescope
       id: hivescope_checkout
+      if: steps.pat_check.outputs.has_pat == 'true'
       continue-on-error: true
       uses: actions/checkout@v4
       with:
         repository: JarbasHiveMind/hivescope
         ref: dev
         path: hivescope
-        token: ${{ secrets.HIVEMIND_PAT || secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.HIVEMIND_PAT }}
+        persist-credentials: false
 
     - name: Copy mirrored docs
-      if: steps.hivescope_checkout.outcome == 'success'
+      if: steps.pat_check.outputs.has_pat == 'true' && steps.hivescope_checkout.outcome == 'success'
       run: |
         mkdir -p hivescope/docs
         cp hivemind-test-harness/docs/api.md hivescope/docs/test-harness-api.md
         cp hivemind-test-harness/docs/nodes.md hivescope/docs/test-harness-nodes.md
+        # The source docs cross-link each other as api.md <-> nodes.md; once
+        # mirrored under their prefixed filenames those relative links would
+        # 404 in hivescope. Rewrite them to the mirrored filenames.
+        sed -i 's/(api\.md)/(test-harness-api.md)/g' hivescope/docs/test-harness-nodes.md
+        sed -i 's/(nodes\.md)/(test-harness-nodes.md)/g' hivescope/docs/test-harness-api.md
 
-    - name: Open draft PR against hivescope
-      if: steps.hivescope_checkout.outcome == 'success'
+    - name: Open (or update) draft PR against hivescope
+      if: steps.pat_check.outputs.has_pat == 'true' && steps.hivescope_checkout.outcome == 'success'
       env:
-        GH_TOKEN: ${{ secrets.HIVEMIND_PAT || secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ secrets.HIVEMIND_PAT }}
       run: |
         cd hivescope
         git config user.name "JarbasAi"
         git config user.email "jarbasai@mailfence.com"
-        git checkout -b "docs/mirror-test-harness-${{ github.sha }}"
+
+        # Branch name is keyed on the source commit, not the run, so reruns
+        # of the same push (github.sha is identical across reruns) reuse the
+        # same branch and PR instead of colliding on `git checkout -b` or
+        # opening duplicate PRs.
+        branch="docs/mirror-test-harness-${{ github.sha }}"
+
+        if git ls-remote --exit-code --heads origin "$branch" > /dev/null 2>&1; then
+          git fetch origin "$branch"
+          git checkout -B "$branch" "origin/$branch"
+        else
+          git checkout -b "$branch"
+        fi
+
         git add docs/test-harness-api.md docs/test-harness-nodes.md
         if git diff --cached --quiet; then
           echo "No doc changes to mirror."
@@ -63,13 +100,19 @@ jobs:
         fi
         git commit -m "docs: mirror hivemind-test-harness API/node docs" \
           -m "Auto-mirrored from JarbasHiveMind/hivemind-test-harness@${{ github.sha }}."
-        git push origin "docs/mirror-test-harness-${{ github.sha }}"
-        gh pr create --draft \
-          --title "docs: mirror hivemind-test-harness API/node docs" \
-          --body "Auto-mirrored from JarbasHiveMind/hivemind-test-harness@${{ github.sha }}. These classes live in hivescope; this keeps hivescope's docs in sync with how the test harness describes them." \
-          --base dev
+        git push --force-with-lease origin "$branch"
+
+        if gh pr view "$branch" --json number > /dev/null 2>&1; then
+          echo "PR already open for $branch; branch updated in place."
+        else
+          gh pr create --draft \
+            --title "docs: mirror hivemind-test-harness API/node docs" \
+            --body "Auto-mirrored from JarbasHiveMind/hivemind-test-harness@${{ github.sha }}. These classes live in hivescope; this keeps hivescope's docs in sync with how the test harness describes them." \
+            --base dev \
+            --head "$branch"
+        fi
 
     - name: Report that hivescope was unavailable
-      if: steps.hivescope_checkout.outcome != 'success'
+      if: steps.pat_check.outputs.has_pat == 'true' && steps.hivescope_checkout.outcome != 'success'
       run: |
-        echo "::warning title=Docs mirror did not run::Could not check out JarbasHiveMind/hivescope. Add a HIVEMIND_PAT secret with write access to enable the mirror."
+        echo "::warning title=Docs mirror did not run::Could not check out JarbasHiveMind/hivescope with the HIVEMIND_PAT secret. Confirm the PAT is valid and has write access to JarbasHiveMind/hivescope."

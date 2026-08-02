@@ -89,6 +89,18 @@ markers = [
     "slow: tests that spin up large topologies (deselect with -m 'not slow')",
 ]
 
+[tool.uv]
+# ovos-core 2.6.0a1 (published 2026-08-02) bumps its ovos-workshop floor to
+# >=9.3.2a1, which conflicts with ovos-padatious's ovos-workshop<8.0.0 pin
+# and forces `uv lock` to backtrack ovos-skill-date-time all the way to the
+# ancient, unbuildable 0.0.1 sdist (broken: its setup.py reads a
+# requirements.txt the sdist doesn't ship). Constrain (not bound) both
+# packages so `uv lock` keeps resolving the `ovos` extra against a
+# compatible line until the ovos-workshop floor bump lands across the
+# stack — this is a lock-time resolver hint, not a change to the extra's
+# published dependency contract.
+constraint-dependencies = ["ovos-core<2.6.0a1", "ovos-skill-date-time>=0.2.2"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["hivemind_test_harness*"]

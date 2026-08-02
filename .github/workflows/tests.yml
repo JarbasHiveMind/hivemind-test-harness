@@ -40,9 +40,11 @@ jobs:
       # --prerelease=allow: the HiveMind 2.x stack (hivemind-core 4.6.x /
       # hivemind-bus-client 0.9.x on ovos-bus-client 2.x) is prerelease-only
       # on PyPI.
-      # The `ovos` extra is intentionally left out of uv.lock (ovos-skill-date-time
-      # 0.0.1 has a broken sdist that makes it un-lockable) — see the ovos-e2e
-      # job below, which still installs it with a plain floating resolve.
+      # The `ovos` extra is intentionally installed with a plain floating
+      # resolve rather than through the frozen uv.lock export above — see the
+      # ovos-e2e job below. Its dependency tree (ovos-core, ovos-workshop,
+      # the skill plugins) moves fast on prerelease channels, and locking it
+      # would silently pin CI to a stale floor instead of testing dev.
       run: |
         uv venv
         uv export --frozen --extra dev --no-emit-project -o /tmp/hth-requirements.txt

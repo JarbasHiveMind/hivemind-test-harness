@@ -25,8 +25,8 @@ pytest tests/ -m "not slow" \
   --ignore-glob='tests/test_e2e_*.py' \
   --ignore-glob='tests/test_embedded_*.py'
 
-# Everything, including large-topology stress tests (what nightly CI runs)
-pytest tests/
+# Large-topology stress tests only (what nightly CI runs)
+pytest tests/ -m slow
 ```
 
 Tests that spin up large topologies are marked `@pytest.mark.slow` and are

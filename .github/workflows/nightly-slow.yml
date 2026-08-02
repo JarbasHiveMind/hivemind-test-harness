@@ -23,7 +23,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: "3.11"
 
@@ -35,9 +35,9 @@ jobs:
     - name: Install dependencies
       # Reproducible install: freeze the dev+plot extras straight from the
       # committed uv.lock (--frozen never re-resolves it) instead of letting
-      # pip re-resolve floating ranges on every run. The `ovos` extra is left
-      # out of uv.lock entirely (ovos-skill-date-time 0.0.1 has a broken sdist
-      # that makes it un-lockable) so it is not requested here.
+      # pip re-resolve floating ranges on every run. `ovos` is installed
+      # separately (see tests.yml) as a floating, non-frozen extra, so it is
+      # not requested here.
       run: |
         uv venv
         uv export --frozen --extra dev --extra plot --no-emit-project -o /tmp/hth-nightly-requirements.txt
@@ -45,7 +45,10 @@ jobs:
 
     - name: Run slow tests
       run: |
-        .venv/bin/python -m pytest tests/ -v --tb=short -m "slow" \
+        # pyproject.toml's global pytest `timeout = 30` would otherwise kill
+        # these large-topology tests long before the 60-minute job budget is
+        # spent. Override it here so slow tests get the job-level headroom.
+        .venv/bin/python -m pytest tests/ -v --tb=short -m "slow" --timeout=1800 \
           --ignore-glob='tests/test_e2e_*.py' \
           --ignore-glob='tests/test_embedded_*.py' \
           --ignore=tests/test_micropython_e2e.py \
