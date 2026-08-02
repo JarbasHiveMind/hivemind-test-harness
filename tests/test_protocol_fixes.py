@@ -251,10 +251,20 @@ class TestUpdateLastSeenMissingKey:
         from unittest.mock import patch
 
         client = list(m0.hm_protocol.clients.values())[0]
+        peers_before = set(m0.hm_protocol.clients.keys())
 
         with patch.object(m0.hm_protocol.db, 'get_client_by_api_key', return_value=None):
-            # Must not raise AttributeError: 'NoneType' has no attribute 'last_seen'
-            m0.hm_protocol.update_last_seen(client)
+            # Must not raise AttributeError: 'NoneType' has no attribute 'last_seen'.
+            # A raised exception fails the test; the explicit assertions below
+            # additionally prove the missing key was handled as a no-op rather
+            # than corrupting connection state.
+            result = m0.hm_protocol.update_last_seen(client)
+
+        assert result is None, "update_last_seen returns nothing on a missing key"
+        assert set(m0.hm_protocol.clients.keys()) == peers_before, \
+            "A revoked/missing DB key must not drop the live connection"
+        assert client.peer in m0.hm_protocol.clients, \
+            "The affected client stays connected after the no-op update"
 
 
 # ---------------------------------------------------------------------------
