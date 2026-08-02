@@ -10,9 +10,9 @@ unimplemented MUST can never quietly rot into false coverage.
 Covered here (in-process, via the hivescope shim):
 
   * NODE-1 §3.4 / MSG-1 §5  — flood-loop suppression bounds a PING in a mesh
-  * MSG-1 §5                — route-based loop suppression for generic PROPAGATE
-                              (strict-xfail: not implemented — only the sender
-                              hop is skipped, ``route`` is not consulted)
+  * MSG-1 §5                — route-based loop suppression for generic PROPAGATE:
+                              a node MUST NOT re-forward a message whose route
+                              already names it (hivemind-core#162, >=4.10.3a1)
   * POLICY-1 §5             — fail-closed: a raising policy denies, never defaults open
   * POLICY-1 §4             — live whitelist mutation takes effect on the next message
   * WIRE-1 §4.2             — reserved binary codes 8/11 (strict-xfail: reused)
@@ -20,7 +20,7 @@ Covered here (in-process, via the hivescope shim):
                               positive+negative pair: a genuinely RSA-signed
                               INTERCOM delivers its inner BUS; a forged signature
                               is rejected against the TOFU-pinned pubkey)
-  * NODE-1 §3.3             — BROADCAST through a relay to a leaf (strict-xfail: gap)
+  * NODE-1 §3.3             — BROADCAST through a relay to a leaf
   * cross-runtime matrix    — a BUS utterance round-trips on every node combo
 
 The Noise-handshake MUSTs (CRYPTO-1 §3.4 identity pinning, KKpsk0 negotiation)
@@ -129,16 +129,18 @@ class TestFloodLoopSuppression:
 class TestRouteBasedLoopSuppression:
     """MSG-1 §5 — 'a node MUST NOT forward a message whose route already
     contains a hop naming it.' This is the route mechanism, distinct from the
-    PING flood_id cache: it must bound *any* routed message, not only PINGs."""
+    PING flood_id cache: it must bound *any* routed message, not only PINGs.
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="hivemind-core handle_propagate_message forwards to every peer "
-               "except the immediate sender and never consults message.route, "
-               "so route-based loop suppression (MSG-1 §5) is unimplemented for "
-               "non-PING PROPAGATE; only PING is bounded, via _seen_flood_ids.",
-    )
-    def test_propagate_naming_peer_in_route_is_not_forwarded(self):
+    hivemind-core >=4.10.3a1 (hivemind-core#162) implements this in
+    ``_is_routing_loop``/``_append_self_hop``, keyed on the RECEIVING node's
+    own stable identity (``self.identity.public_key``, exposed as
+    ``self._node_id``) — NOT on connection-peer names. A hop is a match only
+    when its ``source`` equals the forwarding node's own public key, so the
+    route must name the master (the node that would do the re-forwarding),
+    not the sibling satellite it would otherwise forward to.
+    """
+
+    def test_propagate_naming_master_in_route_is_not_forwarded(self):
         b = TopologyBuilder()
         try:
             b.add_master("M0")
@@ -156,16 +158,18 @@ class TestRouteBasedLoopSuppression:
             received = []
             s1.shim.emitter.on(HiveMessageType.BUS, received.append)
 
-            # Craft a PROPAGATE whose route already names S1 → M0 MUST NOT
-            # forward it to S1.
+            # Craft a PROPAGATE whose route already names M0 (the node about to
+            # re-forward it) by its stable node identity (public key) → M0 MUST
+            # NOT re-forward it to its other satellite S1.
             inner = HiveMessage(HiveMessageType.BUS,
                                 payload=Message("test.route.loop", {}))
             prop = HiveMessage(HiveMessageType.PROPAGATE, payload=inner,
-                               route=[{"source": s1.peer}])
+                               route=[{"source": m0.identity.public_key,
+                                       "targets": [s0.peer]}])
             s0.send(prop)
 
             assert received == [], \
-                "PROPAGATE naming S1 in its route must not be forwarded to S1"
+                "PROPAGATE whose route already names M0 must not be re-forwarded to S1"
         finally:
             b.stop_all()
 

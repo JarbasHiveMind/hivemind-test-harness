@@ -150,12 +150,29 @@ class TestStopActiveCount:
 
         # After "stop" the count must actually halt: the number of speaks
         # emitted post-stop settles to a small value well below the full
-        # count-to-ten. Poll until the speak count stops growing (quiescent),
-        # then assert counting was interrupted rather than running to completion.
+        # count-to-ten. Poll until the speak count stops growing across TWO
+        # consecutive 1s windows (quiescent), then assert counting was
+        # interrupted rather than running to completion.
+        #
+        # A single quiescent window is not evidence the stop was processed:
+        # the very first 1s window after "stop" is sent can observe 0 new
+        # speaks simply because the stop utterance has not been handled yet
+        # (nothing has spoken since agent.clear()), which would make the
+        # assertion below trivially pass even if counting later resumed and
+        # ran to completion. Requiring two consecutive quiescent windows
+        # means at least one full poll cycle has elapsed since the stop was
+        # sent with no growth observed in either window.
+        _consecutive_quiescent = 0
+
         def _quiescent():
+            nonlocal _consecutive_quiescent
             n = len(_speaks())
             time.sleep(1.0)
-            return len(_speaks()) == n
+            if len(_speaks()) == n:
+                _consecutive_quiescent += 1
+            else:
+                _consecutive_quiescent = 0
+            return _consecutive_quiescent >= 2
 
         poll_until(_quiescent, timeout=15,
                    message="counting never went quiescent after 'stop'")

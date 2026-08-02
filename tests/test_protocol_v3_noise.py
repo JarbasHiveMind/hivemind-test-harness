@@ -26,7 +26,9 @@ console scripts (the ``ovos`` extra) are not installed, so it never reds a
 minimal ``build_tests`` environment.
 """
 import json
+import logging
 import os
+import re
 import shutil
 import signal
 import socket
@@ -294,7 +296,7 @@ def _connect(hub, key, password, retries=4, **kw):
 def test_v3_noise_handshake_and_encrypted_roundtrip(hub):
     hub.set_config(min_protocol_version=2)
     hub.start_core()
-    assert _wait_port(hub.ws_port), "hivemind-core never bound 5678:\n" + hub.core_log()
+    assert _wait_port(hub.ws_port), f"hivemind-core never bound {hub.ws_port}:\n" + hub.core_log()
     time.sleep(1)
 
     from ovos_bus_client import MessageBusClient as OVOSBus
@@ -509,19 +511,33 @@ def test_kkpsk0_negotiated_on_reconnect(hub):
 # ---------------------------------------------------------------------------
 # 5c. Identity pinning — a contradicted static key aborts (CRYPTO-1 §3.4.5)
 # ---------------------------------------------------------------------------
-def test_noise_pinning_aborts_on_contradicted_key(hub):
-    """CRYPTO-1 §3.4.5 — 'a peer whose handshake completes against a static key
-    that contradicts a pinned key MUST abort the handshake and reject the
-    connection.' Simulate a MITM: pin the server under a bogus static key, then
-    reconnect — the real server key now contradicts the pin and the handshake
-    must fail.
+def test_noise_pinning_aborts_on_contradicted_key(hub, caplog):
+    """A pinned Noise static key that is later contradicted (simulated MITM)
+    MUST NOT be allowed to complete a session.
 
-    The hub floor is set to ``min_protocol_version=3`` so there is NO legacy-v2
-    plaintext path to silently fall back to: the only way to complete the
-    connection is a v3 Noise session, and the contradicted pin must prevent
-    that. The MUST is 'abort AND reject the connection', so we assert both that
-    no Noise session came up AND that the client is not usably connected — it
-    cannot send (``connected_event`` never set / ``emit`` raises)."""
+    What this exercises, precisely: on reconnect, ``select_noise_options``
+    sees a pinned remote key and the server still offering ``KKpsk0``, so it
+    picks KKpsk0 with ``remote_pubkey=<bogus pinned key>``
+    (``hivemind_bus_client/protocol.py`` ``negotiate``/``start_noise_handshake``
+    call around line ~334-351). Handshaking KKpsk0 against the wrong static
+    key fails cryptographically inside ``start_noise_handshake``/
+    ``read_message``, which is caught and routed through ``_abort_noise``
+    (~line 427): ``noise_transport`` is cleared and the connection is closed,
+    but ``handshake_event`` is deliberately never set. ``wait_for_handshake``
+    then exhausts ``handshake_max_retries`` waiting on that event and raises
+    ``RuntimeError``, which propagates out of ``connect()``. That raise is the
+    guarantee this test checks — not the floor config.
+
+    The ``min_protocol_version=3`` floor config exercises no enforcement path:
+    hivemind-core's ``handle_handshake_message`` never reads it and the client
+    never reads it either — it is set here only to keep this hub's config
+    identical to the other v3-floor tests in this module, not because the
+    floor does anything. Note this test does NOT exercise CRYPTO-1 §3.4.5's
+    pinned-mismatch branch (``hivemind_bus_client/protocol.py`` ~399-402,
+    reached when the handshake completes but the resulting static key differs
+    from the pin) — that branch remains uncovered; a bogus pin fails earlier,
+    inside the KKpsk0 handshake itself, before that branch is ever reached.
+    """
     hub.set_config(min_protocol_version=3)
     hub.start_core(logname="core_pin.log")
     assert _wait_port(hub.ws_port)
@@ -545,45 +561,42 @@ def test_noise_pinning_aborts_on_contradicted_key(hub):
         c1.identity.pin_noise_key(node_id, bogus)
     c1.identity.save()
 
-    # Reconnect WITHOUT clearing pins: the genuine server key now contradicts
-    # the (bogus) pin, so the handshake must abort — no session established.
+    # Reconnect WITHOUT clearing pins: the pinned (now bogus) key is fed to
+    # KKpsk0 as remote_pubkey, so the handshake fails authentication and
+    # connect() must raise rather than silently leaving a usable session.
     c2 = HiveMessageBusClient(key=STRONG_KEY, password=STRONG_PW,
                               host="127.0.0.1", port=hub.ws_port)
-    no_session = False
-    usably_connected = True
+    caplog.set_level(logging.ERROR)
+    raised = None
     try:
-        try:
+        with pytest.raises(Exception) as exc_info:
             c2.connect(site_id="e2e", handshake_max_retries=1)
-            # No v3 Noise session, and — with the v3 floor — no plaintext v2
-            # fallback to be usably connected through either.
-            no_session = c2.noise_transport is None
-            usably_connected = c2.connected_event.is_set()
-            if not usably_connected:
-                # The connection was rejected: a send must fail rather than
-                # silently going out in the clear.
-                try:
-                    c2.emit(HiveMessage(HiveMessageType.BUS, payload=Message(
-                        "recognizer_loop:utterance", {"utterances": ["mitm"]})))
-                    # emit that does not raise means the client believed it was
-                    # connected — treat as usably connected (test must fail).
-                    usably_connected = True
-                except Exception:
-                    usably_connected = False
-        except Exception:
-            # connect() itself raising is the strongest form of rejection.
-            no_session = True
-            usably_connected = False
-        finally:
-            try:
-                c2.close()
-            except Exception:
-                pass
+        raised = exc_info.value
     finally:
-        assert no_session, \
-            "a contradicted pinned static key MUST abort the Noise handshake (MITM guard)"
-        assert not usably_connected, (
-            "a contradicted pinned static key MUST reject the connection: the "
-            "client must NOT be left usably connected (no plaintext downgrade)")
+        try:
+            c2.close()
+        except Exception:
+            pass
+
+    assert raised is not None, (
+        "a contradicted pinned static key MUST cause connect() to raise: "
+        "wait_for_handshake must exhaust its retries and raise since "
+        "_abort_noise never sets handshake_event")
+    assert not c2.handshake_event.is_set(), (
+        "handshake_event is the real authorization signal for a usable "
+        "session (wait_for_handshake blocks on it, connect() only proceeds "
+        "once it is set) — a contradicted pin must leave it unset")
+    assert c2.noise_transport is None, \
+        "no Noise transport may be left installed after an aborted handshake"
+    abort_evidence = (
+        "aborting protocol v3 connection" in caplog.text
+        or re.search(r"handshake|noise|abort", str(raised), re.I) is not None
+    )
+    assert abort_evidence, (
+        "the failure must be traceable to a handshake/noise abort (via the "
+        "client's 'aborting protocol v3 connection' log line or the raised "
+        "error), so this test cannot pass on an unrelated connect failure "
+        f"(e.g. a port/timeout issue); observed error: {raised!r}")
 
 
 # ---------------------------------------------------------------------------
