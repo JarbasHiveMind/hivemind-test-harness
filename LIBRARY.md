@@ -507,5 +507,5 @@ pytest tests/ -v
 
 - **Questions?** Check the docstrings in each module.
 - **Bugs?** Open an issue on [GitHub](https://github.com/JarbasHiveMind/hivemind-test-harness).
-- **Want to contribute?** HiveMind is AGPL-3.0; external contributions are currently not accepted but forks are welcome.
+- **Want to contribute?** HiveMind is Apache-2.0; contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 

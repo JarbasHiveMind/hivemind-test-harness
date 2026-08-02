@@ -1,0 +1,59 @@
+name: Nightly slow tests
+
+# Tests marked @pytest.mark.slow (large topologies, many-satellite fan-out)
+# are deselected from the PR-facing `harness-tests` job in tests.yml so PR CI
+# stays fast. This job runs them on a schedule so they still get exercised
+# regularly, just off the PR critical path.
+
+on:
+  schedule:
+    # 03:17 UTC daily — arbitrary off-peak minute, avoids the top-of-hour
+    # stampede other scheduled Actions jobs pile onto.
+    - cron: '17 3 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  slow-tests:
+    runs-on: ubuntu-latest
+    # These topologies are intentionally large; give them real headroom
+    # instead of inheriting the 30s per-test default from pyproject.toml.
+    timeout-minutes: 60
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+
+    - name: Install dependencies
+      # Reproducible install: freeze the dev+plot extras straight from the
+      # committed uv.lock (--frozen never re-resolves it) instead of letting
+      # pip re-resolve floating ranges on every run. `ovos` is installed
+      # separately (see tests.yml) as a floating, non-frozen extra, so it is
+      # not requested here.
+      run: |
+        uv venv
+        uv export --frozen --extra dev --extra plot --no-emit-project -o /tmp/hth-nightly-requirements.txt
+        uv pip install --prerelease=allow -c /tmp/hth-nightly-requirements.txt -e .[dev,plot]
+
+    - name: Run slow tests
+      run: |
+        # pyproject.toml's global pytest `timeout = 30` would otherwise kill
+        # these large-topology tests long before the 60-minute job budget is
+        # spent. Override it here so slow tests get the job-level headroom.
+        .venv/bin/python -m pytest tests/ -v --tb=short -m "slow" --timeout=1800 \
+          --ignore-glob='tests/test_e2e_*.py' \
+          --ignore-glob='tests/test_embedded_*.py' \
+          --ignore=tests/test_micropython_e2e.py \
+          --ignore=tests/test_helloworld_hivemind.py \
+          --ignore=tests/test_ovoscope_integration.py \
+          --ignore=tests/test_solver_harness.py \
+          --ignore=tests/test_js_e2e.py \
+          --ignore=tests/test_protocol_v3_noise.py

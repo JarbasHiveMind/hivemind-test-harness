@@ -6,7 +6,14 @@ build-backend = "setuptools.build_meta"
 name = "hivemind-test-harness"
 version = "0.1.0"
 description = "In-process end-to-end test framework for the HiveMind protocol"
-requires-python = ">=3.9"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
 dependencies = [
     # The in-process simulator (TopologyBuilder, nodes, recorder, the protocol
     # plugins, fixtures, assertions and scenarios) lives in hivescope. Pulling
@@ -81,6 +88,14 @@ addopts = "--strict-markers"
 markers = [
     "slow: tests that spin up large topologies (deselect with -m 'not slow')",
 ]
+
+[tool.uv]
+# This stack is prerelease-only (ovos-core, hivescope, hivemind-core, etc. all
+# publish as aN). Lock resolution must allow prereleases exactly like every
+# CI install path already does (--prerelease=allow / uv pip install --pre) —
+# without this, `uv lock` applies its own no-prerelease default and produces
+# spurious backtracking/conflicts unrelated to the actual dependency graph.
+prerelease = "allow"
 
 [tool.setuptools.packages.find]
 where = ["."]
