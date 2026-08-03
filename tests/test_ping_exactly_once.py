@@ -369,15 +369,17 @@ class TestPingExactlyOnceDiamond:
                     f"Duplicate {pair} at {node_name}. All: {flood_records}"
                 seen.add(pair)
 
-    @pytest.mark.xfail(
-        reason="cross-branch PING flooding through a diamond (S0→R1→M0→R2→S2) "
-               "does not currently reach the opposite branch's leaves; whether "
-               "PING should flood across branches is unverified against the "
-               "spec. Tracked in hivemind-test-harness#6.",
-        strict=True,
-    )
     def test_cross_branch_pings_reach_siblings(self, diamond):
-        """S0's responsive PING (via R1→M0→R2) reaches S2 and S3 exactly once."""
+        """S0's responsive PING (via R1→M0→R2) reaches S2 and S3 exactly once.
+
+        HIVEMIND-NODE-1 §4: a PING "travels wrapped inside a PROPAGATE and fans
+        out across the mesh", and PROPAGATE "forwards the inner message to every
+        connected node, both downstream and upstream, subject to loop prevention
+        (§3.4)". Cross-branch delivery is therefore required, and the flood is
+        bounded by the flood_id dedup of MSG-1 §4, not by refusing to cross a
+        branch. This was an xfail while core dropped the flood after one hop;
+        hivemind-core#172 (re-wrap the outer envelope on fan-out) fixed it.
+        """
         b = diamond
         sat_rec = defaultdict(list)
         _instrument_satellites(b, sat_rec)

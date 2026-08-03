@@ -99,21 +99,29 @@ class TestTransportAlwaysForwards:
     """Transport messages forward even when the inner payload is handled."""
 
     def test_propagate_always_forwards_to_peers(self, star_topology):
-        """PROPAGATE reaches all sibling satellites."""
+        """PROPAGATE reaches all sibling satellites, envelope intact.
+
+        HIVEMIND-NODE-1 §3.3/§6 ("preserve the forwarded envelope") and
+        HIVEMIND-MSG-1 §4 ("a node that admits the outer message MUST preserve
+        the inner envelope unchanged while routing"): a relay re-wraps the
+        payload in an outer PROPAGATE rather than sending the bare inner BUS,
+        so the receiving peer can fan the flood out again. Sending the unpacked
+        inner payload killed a flood after one hop.
+        """
         b = star_topology
-        # hivemind-core forwards the *unpacked* inner payload to peers, so a
-        # sibling receives the propagated BUS content (recognizer_loop:utterance),
-        # not the PROPAGATE wrapper.
         received = {f"S{i}": [] for i in range(3)}
         for i in range(3):
             b.get_satellite(f"S{i}").shim.emitter.on(
-                HiveMessageType.BUS, received[f"S{i}"].append
+                HiveMessageType.PROPAGATE, received[f"S{i}"].append
             )
         # S0 sends PROPAGATE — S1 and S2 should receive the content, S0 should not
         b.get_satellite("S0").send(_propagate_bus())
         assert len(received["S0"]) == 0, "Sender must not receive its own propagated message"
-        assert len(received["S1"]) == 1, "S1 must receive the propagated BUS"
-        assert len(received["S2"]) == 1, "S2 must receive the propagated BUS"
+        assert len(received["S1"]) == 1, "S1 must receive the propagated PROPAGATE(BUS)"
+        assert len(received["S2"]) == 1, "S2 must receive the propagated PROPAGATE(BUS)"
+        for name in ("S1", "S2"):
+            assert received[name][0].payload.msg_type == HiveMessageType.BUS, \
+                f"{name} must receive the inner BUS unchanged inside the wrapper"
 
     def test_propagate_crosses_relay_upstream(self, chain_topology):
         """PROPAGATE from S0 (behind R1) reaches M0."""
@@ -157,18 +165,21 @@ class TestTransportAlwaysForwards:
         b.add_satellite("S2", upstream=b.get_master("M0"))
         b.start_all()
         try:
-            # peers receive the unpacked inner BUS content, not the wrapper
+            # NODE-1 §3.3/§6 + MSG-1 §4: the relay preserves the envelope, so
+            # peers receive the BROADCAST wrapper with the inner BUS unchanged.
             s1_recv = []
             s2_recv = []
             b.get_satellite("S1").shim.emitter.on(
-                HiveMessageType.BUS, s1_recv.append
+                HiveMessageType.BROADCAST, s1_recv.append
             )
             b.get_satellite("S2").shim.emitter.on(
-                HiveMessageType.BUS, s2_recv.append
+                HiveMessageType.BROADCAST, s2_recv.append
             )
             b.get_satellite("S0").send(_broadcast_bus())
-            assert len(s1_recv) == 1, "S1 must receive the broadcast BUS"
-            assert len(s2_recv) == 1, "S2 must receive the broadcast BUS"
+            assert len(s1_recv) == 1, "S1 must receive the BROADCAST(BUS)"
+            assert len(s2_recv) == 1, "S2 must receive the BROADCAST(BUS)"
+            assert s1_recv[0].payload.msg_type == HiveMessageType.BUS
+            assert s2_recv[0].payload.msg_type == HiveMessageType.BUS
         finally:
             b.stop_all()
 

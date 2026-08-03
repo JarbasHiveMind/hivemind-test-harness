@@ -185,6 +185,22 @@ package, so they skip cleanly when that checkout is absent.
 
 ---
 
+## Behaviour Changes (back-compat notes)
+
+| Change | Since | What breaks | Spec |
+|---|---|---|---|
+| A node with `require_crypto` (the default) refuses an unsigned, unencrypted `INTERCOM`. The inner message is dropped, not injected on the agent bus, and the frame is not relayed onward. | hivemind-core 4.10.x (PR #169) | Any deployment that sent plaintext `INTERCOM` to a default listener. Sign and encrypt the payload to the target peer's public key, or run the listener with `require_crypto=False`. | HIVEMIND-CRYPTO-1 §5 |
+| `PROPAGATE` and `BROADCAST` fan-out re-wraps the outer envelope. A peer now receives `PROPAGATE(BUS)` / `BROADCAST(BUS)`, not a bare `BUS`. | hivemind-core 4.10.x (PR #172) | Receivers that listened for the inner type on the wire. Listen for the wrapper and read `message.payload`. | HIVEMIND-NODE-1 §3.3, §6; HIVEMIND-MSG-1 §4 |
+
+## Known Open Regressions
+
+| Symptom | Repo | Failing tests |
+|---|---|---|
+| `handle_propagate` / `handle_broadcast` hard-assert the inner type is one of `BUS`/`INTERCOM`/`PING`, so a `PROPAGATE(THIRDPRTY)` or `BROADCAST(THIRDPRTY)` raises `AssertionError` instead of being ignored. HIVEMIND-MSG-1 §3 says a node "**MUST** ignore [an unrecognized `THIRDPRTY` payload] rather than error". Latent until hivemind-core#172 started preserving the envelope. | hivemind-bus-client `protocol.py:618,641` | `test_propagate.py::TestPropagateFanOut` (4), `test_all_topologies.py::TestPropagateAllTopologies::test_propagate_star_siblings_receive`, `test_all_topologies.py::TestBroadcastAllTopologies` (3) |
+| A relay answers one `PING` flood twice under two different identifiers: the satellite side replies with `name::session_id`, the listener side replies with its public key. The two sides keep separate `flood_id` caches, so MSG-1 §4 dedup ("nodes drop messages whose `flood_id` they have already seen") does not bind across them, and every relay adds a phantom node to the upstream `HiveMapper`. | hivemind-core `protocol.py:1429-1445` (PR #172) | `test_ping_pong.py::TestPingChainTopology` (2), `test_ping_pong.py::TestPingDeepChainTopology` (2), `test_ping_exactly_once.py::TestPingExactlyOnceDiamond::test_m0_sees_all_six_once` |
+
+---
+
 ## Bugs Fixed in External Repos (with regression tests)
 
 All bugs were fixed directly in the source repos, not monkey-patched in the test harness.

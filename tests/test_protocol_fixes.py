@@ -5,7 +5,8 @@ Each class targets one audit finding and verifies the fix end-to-end through the
 full connect/handshake/send pipeline.
 
   CRIT-1  (TS-FIX-01) — Wrong-password satellite is disconnected at handshake
-  CRIT-3  (TS-FIX-02) — INTERCOM inner BUS is delivered after decryption
+  CRIT-3  (TS-FIX-02) — INTERCOM: signed+encrypted inner BUS is delivered after
+                        decryption; an unsigned plaintext INTERCOM is refused
   HIGH-3  (TS-FIX-03) — Non-admin BROADCAST disconnects the offending satellite
   HIGH-3  (TS-FIX-04) — can_propagate=False PROPAGATE disconnects satellite
   HIGH-3  (TS-FIX-05) — can_escalate=False ESCALATE disconnects satellite
@@ -107,20 +108,40 @@ class TestWrongPasswordDisconnects:
 # ---------------------------------------------------------------------------
 
 class TestIntercomInnerDelivery:
-    """TS-FIX-02 — After RSA decryption the inner BUS message is injected on the
-    master's agent bus.  Before the fix, dispatch checked message.msg_type
-    (always INTERCOM) instead of inner.msg_type, so the BUS was silently dropped."""
+    """TS-FIX-02 — After RSA decryption *and* origin-signature verification the
+    inner BUS message is injected on the master's agent bus. Before the fix,
+    dispatch checked message.msg_type (always INTERCOM) instead of
+    inner.msg_type, so the BUS was silently dropped.
+
+    A payload that is neither signed nor encrypted has no origin proof, and
+    HIVEMIND-CRYPTO-1 §5 makes a crypto-requiring node refuse it."""
 
     @pytest.mark.skip(reason="INTERCOM is an unfinished feature — not used in production yet")
     def test_encrypted_intercom_delivers_inner_bus(self, minimal_topology):
         """RSA-encrypted INTERCOM(BUS) → master injects the BUS on agent bus."""
         pass
 
-    def test_unencrypted_intercom_bus_delivered(self, minimal_topology):
-        """Unencrypted INTERCOM(BUS) with no target_pubkey → inner BUS injected."""
+    def test_unencrypted_intercom_refused_when_crypto_required(self, minimal_topology):
+        """A require_crypto node drops an unsigned, unencrypted INTERCOM.
+
+        HIVEMIND-CRYPTO-1 §5 is fail-closed: "Every form an INTERCOM payload may
+        take MUST be authenticated the same way. Where an implementation also
+        accepts an INTERCOM whose payload is a plaintext or already-decoded
+        envelope rather than a signed ciphertext, those forms carry no origin
+        proof at all and a node that requires encrypted traffic (§4) MUST refuse
+        them." The listener defaults to ``require_crypto=True``, so the inner BUS
+        must NOT reach the agent bus.
+
+        BEHAVIOUR CHANGE (hivemind-core#169): this harness previously asserted the
+        inner BUS *was* injected. Plaintext INTERCOM now stops at the door — needs
+        a back-compat line in the docs for anyone who relied on it.
+        """
         b = minimal_topology
         s0 = b.get_satellite("S0")
         m0 = b.get_master("M0")
+
+        assert m0.hm_protocol.require_crypto, \
+            "this test only means anything on a crypto-requiring listener"
 
         inner = HiveMessage(HiveMessageType.BUS,
                             payload=Message("recognizer_loop:utterance",
@@ -130,7 +151,7 @@ class TestIntercomInnerDelivery:
 
         s0.send(intercom)
 
-        m0.agent_protocol.assert_injected("recognizer_loop:utterance")
+        m0.agent_protocol.assert_not_injected("recognizer_loop:utterance")
 
 
 # ---------------------------------------------------------------------------

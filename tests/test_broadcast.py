@@ -55,21 +55,24 @@ class TestBroadcastFromAdminSatellite:
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")  # admin
 
-        # S1 and S2 should receive the broadcast content from S0 via M0. core
-        # forwards the unpacked inner payload to peers, so siblings see the BUS
-        # content rather than the BROADCAST wrapper.
+        # S1 and S2 should receive the broadcast content from S0 via M0.
+        # HIVEMIND-NODE-1 §3.3/§6 ("preserve the forwarded envelope") and
+        # HIVEMIND-MSG-1 §4 ("preserve the inner envelope unchanged while
+        # routing"): M0 re-wraps the payload, so siblings see the BROADCAST
+        # wrapper carrying the inner BUS, not a bare BUS.
         s1_received = []
         s2_received = []
-        b.get_satellite("S1").shim.emitter.on(HiveMessageType.BUS,
+        b.get_satellite("S1").shim.emitter.on(HiveMessageType.BROADCAST,
                                                s1_received.append)
-        b.get_satellite("S2").shim.emitter.on(HiveMessageType.BUS,
+        b.get_satellite("S2").shim.emitter.on(HiveMessageType.BROADCAST,
                                                s2_received.append)
 
         s0.send(_broadcast_msg())
 
-        # Master should have fired broadcast_callback
         assert len(s1_received) == 1, "S1 did not receive admin broadcast"
         assert len(s2_received) == 1, "S2 did not receive admin broadcast"
+        assert s1_received[0].payload.msg_type == HiveMessageType.BUS
+        assert s2_received[0].payload.msg_type == HiveMessageType.BUS
 
 
 class TestBroadcastFromNonAdmin:
