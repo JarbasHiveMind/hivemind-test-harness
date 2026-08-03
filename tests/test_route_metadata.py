@@ -60,7 +60,7 @@ class TestRouteAccumulatesThroughRelay:
 
         m0.hm_protocol.handle_message = _capture
 
-        inner = HiveMessage(HiveMessageType.THIRDPRTY,
+        inner = HiveMessage(HiveMessageType.RENDEZVOUS,
                             payload={"data": "route-test"})
         s0.send(HiveMessage(HiveMessageType.ESCALATE, payload=inner))
 
@@ -84,7 +84,7 @@ class TestPropagateRouteThroughRelay:
         s0 = b.get_satellite("S0")
         m0 = b.get_master("M0")
 
-        inner = HiveMessage(HiveMessageType.THIRDPRTY,
+        inner = HiveMessage(HiveMessageType.RENDEZVOUS,
                             payload={"data": "propagate-route"})
         propagate = HiveMessage(HiveMessageType.PROPAGATE, payload=inner)
 
@@ -113,7 +113,7 @@ class TestRoutePreservedThroughUnpack:
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
 
-        inner = HiveMessage(HiveMessageType.THIRDPRTY,
+        inner = HiveMessage(HiveMessageType.RENDEZVOUS,
                             payload={"data": "unpack-test"})
         outer = HiveMessage(HiveMessageType.PROPAGATE, payload=inner)
         route = [{"source": "peer-A", "targets": ["peer-B"]}]

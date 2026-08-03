@@ -28,7 +28,6 @@ is present — point `HIVEMIND_MICROPYTHON_CLIENT` at it, or CI's
 | QUERY | `query` | upstream+response | Like ESCALATE but stops at first responder | tested | `test_query.py` (6 tests) |
 | CASCADE | `cascade` | both+response | Like PROPAGATE but expects responses from all | tested | `test_cascade.py` (8 tests) |
 | RENDEZVOUS | `rendezvous` | reserved | Rendezvous-node peer discovery | not implemented | `test_unimplemented_types.py` |
-| THIRDPRTY | `3rdparty` | both | User-land free-form message | tested | `test_propagate.py`, `test_unimplemented_types.py` |
 | BINARY | `bin` | satellite→master | Binary data container (7 subtypes) | tested | `test_binary.py`, `test_e2e_binary_skill.py`. **Gap:** the binarize (bitstring) encoding is not covered — see [FAQ](../FAQ.md) |
 
 ### Not-yet-implemented types (RENDEZVOUS)
@@ -196,12 +195,20 @@ package, so they skip cleanly when that checkout is absent.
 
 | Symptom | Repo | Failing tests |
 |---|---|---|
-| `handle_propagate` / `handle_broadcast` hard-assert the inner type is one of `BUS`/`INTERCOM`/`PING`, so a `PROPAGATE(THIRDPRTY)` or `BROADCAST(THIRDPRTY)` raises `AssertionError` instead of being ignored. HIVEMIND-MSG-1 §3 says a node "**MUST** ignore [an unrecognized `THIRDPRTY` payload] rather than error". Latent until hivemind-core#172 started preserving the envelope. | hivemind-bus-client `protocol.py:618,641` | `test_propagate.py::TestPropagateFanOut` (4), `test_all_topologies.py::TestPropagateAllTopologies::test_propagate_star_siblings_receive`, `test_all_topologies.py::TestBroadcastAllTopologies` (3) |
+| A `PROPAGATE` from one satellite does not reach its siblings: the inner payload arrives at no peer. What is left of the assert regression below, once the handler stops raising. | hivemind-core | `test_propagate.py::TestPropagateFanOut::test_siblings_receive_propagate` |
 | A relay answers one `PING` flood twice under two different identifiers: the satellite side replies with `name::session_id`, the listener side replies with its public key. The two sides keep separate `flood_id` caches, so MSG-1 §4 dedup ("nodes drop messages whose `flood_id` they have already seen") does not bind across them, and every relay adds a phantom node to the upstream `HiveMapper`. | hivemind-core `protocol.py:1429-1445` (PR #172) | `test_ping_pong.py::TestPingChainTopology` (2), `test_ping_pong.py::TestPingDeepChainTopology` (2), `test_ping_exactly_once.py::TestPingExactlyOnceDiamond::test_m0_sees_all_six_once` |
 
 ---
 
 ## Bugs Fixed in External Repos (with regression tests)
+
+`handle_propagate` / `handle_broadcast` hard-asserted that the inner type
+was one of `BUS`/`INTERCOM`/`PING`, so any other inner type raised
+`AssertionError` instead of being ignored. HIVEMIND-MSG-1 §3 says a node
+**MUST** forward or ignore a payload it does not understand. An `assert`
+also vanishes under `python -O`. Fixed in hivemind-bus-client#160, which
+also removes the `THIRDPRTY` type these tests used as their inner
+payload; the tests now use `RENDEZVOUS`.
 
 All bugs were fixed directly in the source repos, not monkey-patched in the test harness.
 

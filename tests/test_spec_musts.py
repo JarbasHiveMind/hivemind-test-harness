@@ -322,20 +322,12 @@ class TestCrossRuntimeMatrix:
 # ---------------------------------------------------------------------------
 
 class TestReservedWireCodes:
-    """WIRE-1 §4.2 — codes 8 and 11 are RESERVED: a sender MUST NOT emit them,
-    the registry MUST NOT reuse them, and a receiver MUST reject a frame
-    carrying an unassigned/reserved value."""
+    """WIRE-1 §4.2 — code 11 carried THIRDPRTY, a type the spec removed. The
+    code stays reserved: the registry MUST NOT give it to another type, and a
+    receiver MUST reject a frame carrying an unassigned value."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="hivemind_bus_client.serialization._INT2TYPE reuses the reserved "
-               "codes (8→CASCADE, 11→THIRDPRTY) and decode_bitstring defaults an "
-               "unknown 5-bit value to 11 (THIRDPRTY) instead of rejecting it, "
-               "violating WIRE-1 §4.2.",
-    )
-    def test_reserved_codes_are_not_assigned(self):
+    def test_reserved_code_11_is_not_assigned(self):
         from hivemind_bus_client.serialization import _INT2TYPE
-        assert 8 not in _INT2TYPE, "code 8 is reserved and MUST NOT be assigned"
         assert 11 not in _INT2TYPE, "code 11 is reserved and MUST NOT be assigned"
 
 

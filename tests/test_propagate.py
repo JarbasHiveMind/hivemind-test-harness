@@ -7,7 +7,7 @@ from hivemind_bus_client.message import HiveMessage, HiveMessageType
 
 
 def _propagate_msg():
-    inner = HiveMessage(HiveMessageType.THIRDPRTY,
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS,
                         payload={"data": "propagate-payload"})
     return HiveMessage(HiveMessageType.PROPAGATE, payload=inner)
 
@@ -23,11 +23,11 @@ class TestPropagateFanOut:
         s2 = b.get_satellite("S2")
 
         # core forwards the unpacked inner payload to peers, so siblings receive
-        # the propagated THIRDPRTY content, not the PROPAGATE wrapper.
+        # the propagated RENDEZVOUS content, not the PROPAGATE wrapper.
         s1_received = []
         s2_received = []
-        s1.shim.emitter.on(HiveMessageType.THIRDPRTY, s1_received.append)
-        s2.shim.emitter.on(HiveMessageType.THIRDPRTY, s2_received.append)
+        s1.shim.emitter.on(HiveMessageType.RENDEZVOUS, s1_received.append)
+        s2.shim.emitter.on(HiveMessageType.RENDEZVOUS, s2_received.append)
 
         s0.send(_propagate_msg())
 
