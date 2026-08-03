@@ -1091,7 +1091,7 @@ wheels = [
 
 [[package]]
 name = "hivemind-core"
-version = "4.10.2a3"
+version = "4.10.15a1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1111,9 +1111,9 @@ dependencies = [
     { name = "rich" },
     { name = "setuptools" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/49/9d/fc33c52f4fbef73dfd331dd15f8e26cbdb878448765dec8cd223016daa15/hivemind_core-4.10.2a3.tar.gz", hash = "sha256:8ccf4705700f841b7599b69a89d8866fb003424ac6e98fba70b98b10b5d7d2ca", size = 73006, upload-time = "2026-07-30T23:44:16.332Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8f/dc/a6b1dbf856f78569bd96394d28e55ff8541c4322ec77acf752900b1b644b/hivemind_core-4.10.15a1.tar.gz", hash = "sha256:e989d655346bc7de8910b0572fba5193a4b97cf337a9cb9c1363290de5bf2587", size = 94366, upload-time = "2026-08-03T00:18:31.049Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3a/c9/daf67417ab4c91a331c76785033567efe639fbdc1535244e6a59c660d2a2/hivemind_core-4.10.2a3-py3-none-any.whl", hash = "sha256:8bfa9954986c6529299f4be04e62219bcc7ea2084603d2542ac48b94a4071c2e", size = 50753, upload-time = "2026-07-30T23:44:14.737Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/d1/cdda0194de8803902ef2b7a82cfcb63cc0f7f3eeb4dd6cca500d21f36f19/hivemind_core-4.10.15a1-py3-none-any.whl", hash = "sha256:e28495b66745f9994a2ed77c382200ac2f4e631a5b0ad5991cbde7176c9cc2be", size = 57169, upload-time = "2026-08-03T00:18:29.767Z" },
 ]
 
 [[package]]
@@ -1219,7 +1219,7 @@ plot = [
 requires-dist = [
     { name = "hivemind-audio-binary-protocol", marker = "extra == 'dev'" },
     { name = "hivemind-bus-client", specifier = ">=0.10.1a1" },
-    { name = "hivemind-core", specifier = ">=4.7.0a1" },
+    { name = "hivemind-core", specifier = ">=4.10.3a1" },
     { name = "hivescope", specifier = ">=0.6.2a1" },
     { name = "hivescope", extras = ["ovos"], marker = "extra == 'ovos'", specifier = ">=0.6.2a1" },
     { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.5" },
