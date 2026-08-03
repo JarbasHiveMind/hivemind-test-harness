@@ -36,17 +36,17 @@ def _bus_msg(text: str = "hello") -> Message:
 
 
 def _propagate_msg() -> HiveMessage:
-    inner = HiveMessage(HiveMessageType.THIRDPRTY, {"data": "prop-test"})
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS, {"data": "prop-test"})
     return HiveMessage(HiveMessageType.PROPAGATE, payload=inner)
 
 
 def _escalate_msg() -> HiveMessage:
-    inner = HiveMessage(HiveMessageType.THIRDPRTY, {"data": "esc-test"})
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS, {"data": "esc-test"})
     return HiveMessage(HiveMessageType.ESCALATE, payload=inner)
 
 
 def _broadcast_msg() -> HiveMessage:
-    inner = HiveMessage(HiveMessageType.THIRDPRTY, {"data": "bcast-test"})
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS, {"data": "bcast-test"})
     return HiveMessage(HiveMessageType.BROADCAST, payload=inner)
 
 
@@ -134,17 +134,22 @@ class TestPropagateAllTopologies:
         b = star_topology
         s1_received = []
         s2_received = []
-        # core forwards the unpacked inner payload to peers, so siblings receive
-        # the propagated THIRDPRTY message directly (not the PROPAGATE wrapper).
+        # HIVEMIND-NODE-1 §4 ("PROPAGATE fans the inner message to every
+        # connected node") and HIVEMIND-MSG-1 §4 ("preserve the inner envelope
+        # unchanged while routing"): siblings receive the PROPAGATE wrapper
+        # with the inner message unchanged, not a bare listener on the inner
+        # type.
         b.get_satellite("S1").shim.emitter.on(
-            HiveMessageType.THIRDPRTY, s1_received.append
+            HiveMessageType.PROPAGATE, s1_received.append
         )
         b.get_satellite("S2").shim.emitter.on(
-            HiveMessageType.THIRDPRTY, s2_received.append
+            HiveMessageType.PROPAGATE, s2_received.append
         )
         b.get_satellite("S0").send(_propagate_msg())
         assert len(s1_received) >= 1
         assert len(s2_received) >= 1
+        assert s1_received[0].payload.msg_type == HiveMessageType.RENDEZVOUS
+        assert s2_received[0].payload.msg_type == HiveMessageType.RENDEZVOUS
 
     def test_propagate_chain_crosses_relay(self, chain_topology):
         b = chain_topology
@@ -268,18 +273,22 @@ class TestBroadcastAllTopologies:
     def test_broadcast_siblings_receive(self):
         b = self._admin_topology(n_extra=2)
         try:
-            # peers receive the unpacked inner THIRDPRTY content, not the wrapper
+            # HIVEMIND-NODE-1 §4 and HIVEMIND-MSG-1 §4: peers receive the
+            # BROADCAST wrapper with the inner message unchanged, not a bare
+            # listener on the inner type.
             s1_recv = []
             s2_recv = []
             b.get_satellite("S1").shim.emitter.on(
-                HiveMessageType.THIRDPRTY, s1_recv.append
+                HiveMessageType.BROADCAST, s1_recv.append
             )
             b.get_satellite("S2").shim.emitter.on(
-                HiveMessageType.THIRDPRTY, s2_recv.append
+                HiveMessageType.BROADCAST, s2_recv.append
             )
             b.get_satellite("S0").send(_broadcast_msg())
             assert len(s1_recv) == 1
             assert len(s2_recv) == 1
+            assert s1_recv[0].payload.msg_type == HiveMessageType.RENDEZVOUS
+            assert s2_recv[0].payload.msg_type == HiveMessageType.RENDEZVOUS
         finally:
             b.stop_all()
 
