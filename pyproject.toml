@@ -47,6 +47,17 @@ dev = [
     # cross-repo packages whose code the harness imports directly in tests
     # (e.g. test_audio_transformers imports hivemind_audio_binary_protocol).
     "hivemind-audio-binary-protocol",
+    # DISCOVERY-1 conformance: tests/test_spec_musts.py asserts the real mDNS
+    # announcement record and the LocalPresence defaults. 0.0.5a1 is the first
+    # release where LocalPresence defaults upnp=False (HiveMind-presence#17),
+    # which test_presence_library_also_defaults_ssdp_off asserts outright — an
+    # older presence fails it rather than skipping, so this floor is load-bearing.
+    "hivemind-presence>=0.0.5a1",
+    # The announcement tests build a real zeroconf ServiceInfo and read the
+    # record back. hivemind-presence keeps zeroconf in its own `test` extra
+    # (it is an optional LGPL transport for end users), so depending on the
+    # package alone does not pull it in.
+    "zeroconf",
 ]
 # Live OVOS skill execution through HiveMind (MiniCroft-backed agent). Mirrors
 # hivescope's own ``ovos`` extra, plus the intent-pipeline plugins MiniCroft
