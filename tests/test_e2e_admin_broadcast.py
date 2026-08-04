@@ -86,11 +86,11 @@ class TestAdminBroadcast:
             s2_received.append(msg)
             s2_evt.set()
 
-        # hivemind-core unpacks a BROADCAST and forwards the inner payload to
-        # the other peers, so siblings see the BUS content, not the BROADCAST
-        # wrapper (see TS-BC-01 in tests/test_broadcast.py).
-        s1.shim.emitter.on(HiveMessageType.BUS, _on_s1)
-        s2.shim.emitter.on(HiveMessageType.BUS, _on_s2)
+        # hivemind-core keeps the envelope when it forwards (_rewrap,
+        # HIVEMIND-NODE-1 §3.3), so siblings see the BROADCAST wrapper with the
+        # BUS content still inside it (see TS-BC-01 in tests/test_broadcast.py).
+        s1.shim.emitter.on(HiveMessageType.BROADCAST, _on_s1)
+        s2.shim.emitter.on(HiveMessageType.BROADCAST, _on_s2)
 
         # Admin broadcasts a custom event. A BROADCAST payload is a nested
         # HiveMessage, not a raw bus Message: hivemind-core reads
@@ -107,6 +107,9 @@ class TestAdminBroadcast:
 
         assert len(s1_received) >= 1, "S1 did not receive admin broadcast"
         assert len(s2_received) >= 1, "S2 did not receive admin broadcast"
+        for got in (s1_received[0], s2_received[0]):
+            assert got.payload.msg_type == HiveMessageType.BUS, \
+                f"inner payload must stay a BUS, got {got.payload.msg_type}"
 
     def test_non_admin_broadcast_rejected(self, admin_broadcast_topology):
         """TS-AB-02 — non-admin S1 cannot broadcast."""
