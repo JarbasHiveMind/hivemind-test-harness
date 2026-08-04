@@ -22,11 +22,23 @@ Covered here (in-process, via the hivescope shim):
                               is rejected against the TOFU-pinned pubkey)
   * NODE-1 §3.3             — BROADCAST through a relay to a leaf
   * cross-runtime matrix    — a BUS utterance round-trips on every node combo
+  * CRYPTO-1 §3.1           — the configured protocol-version floor is judged on
+                              the version the handshake actually completes at,
+                              not on what the peer merely declares it can do
+  * POLICY-1 §5             — a chain that cannot be built falls back to
+                              DenyAllPolicy; admission is refused, never opened
+  * BRIDGE-1 §4             — two connections that resolve to the same peer id
+                              are disambiguated by a server-generated suffix,
+                              so neither displaces the other's routing entry
+  * AGENT-1 §3.1            — an unreachable agent backend produces an explicit
+                              ``backend_unavailable`` denial, never silence
+  * MSG-1 §5                — ``target_site_id`` survives a relay hop unchanged
 
 The Noise-handshake MUSTs (CRYPTO-1 §3.4 identity pinning, KKpsk0 negotiation)
 cannot run in-process — the shim completes only the legacy v2 handshake — so they
 live in ``test_protocol_v3_noise.py`` against a real ``hivemind-core`` hub.
 """
+import re
 import time
 import uuid
 
@@ -34,6 +46,10 @@ import pytest
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 
+import hivemind_core.policy as core_policy
+import hivemind_core.protocol as core_protocol
+
+from hivescope.node import MasterNode, SatelliteNode
 from hivescope.topology import TopologyBuilder
 from hivescope.assertions import assert_policy_denied
 
@@ -461,3 +477,331 @@ class TestBroadcastThroughRelay:
 
         poll_until(lambda: len(received) >= 1, timeout=3,
                    message="BROADCAST never reached the leaf behind the relay")
+
+
+# ---------------------------------------------------------------------------
+# CRYPTO-1 §3.1 — the configured protocol-version floor
+# ---------------------------------------------------------------------------
+
+def _override_server_config(monkeypatch, **overrides):
+    """Run the node against the real server config with ``overrides`` applied.
+
+    Copies whatever ``get_server_config()`` returns and patches only the named
+    keys, so the code under test still goes through its own parsing of the
+    value (e.g. ``_configured_min_protocol_version``) instead of having the
+    parsed result handed to it.
+
+    The operator policy chain is emptied unless the caller says otherwise. A
+    developer machine that has a real ``~/.config/hivemind`` naming a policy
+    plugin which is not installed makes ``PolicyChain.from_config`` raise, and
+    every master then silently runs on the DenyAllPolicy fallback — which is
+    the very behaviour some of these tests are trying to distinguish. Starting
+    from an explicitly empty operator chain (the builtin gates are prepended
+    regardless and are not opt-out) makes the outcome the same everywhere.
+    """
+    cfg = dict(core_protocol.get_server_config())
+    cfg.setdefault("policy", {})
+    cfg["policy"] = {"chain": []}
+    cfg.update(overrides)
+    monkeypatch.setattr(core_protocol, "get_server_config", lambda: cfg)
+    return cfg
+
+
+class TestProtocolVersionFloor:
+    """HIVEMIND-CRYPTO-1 §3.1 / HIVEMIND-WIRE-1 §2 — a server MUST refuse a
+    handshake that *completes* below its configured ``min_protocol_version``.
+
+    The subtlety this pins is the reason the check exists at all. Advertising a
+    floor in the HELLO parameter set is not enforcement: a peer that is
+    *capable* of the floor (it has a password, so the server offers Noise/v3)
+    can simply answer with the legacy password envelope and finish the
+    connection at v2. If the floor is only judged on declared capability, that
+    peer is admitted at a version the operator refused — a silent downgrade.
+    hivemind-core therefore re-checks the floor against the version the
+    handshake is actually being performed at, in ``handle_handshake_message``.
+
+    Both cases below run the same v3-capable satellite through the same legacy
+    v2 password handshake; only the configured floor differs.
+    """
+
+    @staticmethod
+    def _attempt_legacy_handshake():
+        """Wire one satellite to one master and let the handshake run.
+
+        Returns ``(master, satellite)``; the caller inspects the outcome and is
+        responsible for cleanup. Deliberately does not use
+        :meth:`TopologyBuilder.start_all`, which retries a failed handshake and
+        would mask a refusal behind a second, unrelated error.
+        """
+        master = MasterNode.create("M0")
+        satellite = SatelliteNode.create("S0")
+        satellite._master = master
+        master.register_satellite(key=satellite.identity.access_key,
+                                  password=satellite.identity.password)
+        master.network_protocol.connect_satellite(satellite=satellite)
+        return master, satellite
+
+    def test_handshake_below_the_floor_is_refused(self, monkeypatch):
+        # Floor v3: the satellite is v3-capable (it has a password) but the
+        # in-process shim only ever performs the legacy v2 handshake, so the
+        # version it completes at is below the floor and MUST be refused.
+        _override_server_config(monkeypatch, min_protocol_version=3)
+        master, satellite = self._attempt_legacy_handshake()
+        try:
+            assert not satellite.shim.handshake_event.is_set(), (
+                "a handshake completing below the configured "
+                "min_protocol_version MUST be refused, but it succeeded — "
+                "the protocol floor is advisory again (CRYPTO-1 §3.1)"
+            )
+            assert master.hm_protocol.clients == {}, (
+                "a peer refused for being below the protocol floor MUST NOT be "
+                f"registered; clients={list(master.hm_protocol.clients)}"
+            )
+        finally:
+            master.cleanup()
+            satellite.cleanup()
+
+    def test_handshake_at_the_floor_is_admitted(self, monkeypatch):
+        # The control for the test above: same satellite, same legacy v2
+        # handshake, floor lowered to v2. Without this, a refusal caused by
+        # anything at all would read as conformance.
+        _override_server_config(monkeypatch, min_protocol_version=2)
+        master, satellite = self._attempt_legacy_handshake()
+        try:
+            assert satellite.shim.handshake_event.is_set(), (
+                "a handshake AT the configured floor must be admitted"
+            )
+            assert satellite.peer in master.hm_protocol.clients
+        finally:
+            master.cleanup()
+            satellite.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# POLICY-1 §5 — an unbuildable policy chain falls back to deny-everything
+# ---------------------------------------------------------------------------
+
+class TestPolicyChainUnavailableFailsClosed:
+    """HIVEMIND-POLICY-1 §5 — 'if the chain cannot be constructed, install a
+    deny-everything fallback.'
+
+    A misconfigured or broken policy module is the one situation where the
+    admission chain has no opinion to offer, and it is exactly the situation
+    where defaulting open would hand an unauthenticated-by-policy peer the
+    agent bus. hivemind-core catches the construction failure and installs
+    ``DenyAllPolicy``, which denies with the registered code
+    ``policy_chain_unavailable`` (POLICY-1 §6).
+
+    The break is injected at ``PolicyChain.from_config`` because that is the
+    real trigger — an operator's config naming a policy module that raises on
+    load — rather than by installing the fallback directly, which would only
+    re-test ``DenyAllPolicy`` and not the fallback being reached.
+    """
+
+    def test_unbuildable_chain_denies_an_otherwise_allowed_message(self, monkeypatch):
+        ALLOWED = "recognizer_loop:utterance"
+
+        def _unbuildable(cls, config, hm_protocol=None):
+            raise RuntimeError("policy module failed to load")
+
+        monkeypatch.setattr(core_policy.PolicyChain, "from_config",
+                            classmethod(_unbuildable))
+
+        b = TopologyBuilder()
+        try:
+            # The master is built while from_config is broken, so its chain is
+            # the DenyAllPolicy fallback.
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"),
+                            allowed_types=[ALLOWED])
+            b.start_all()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
+
+            # ALLOWED is on this client's whitelist: with a healthy chain it is
+            # admitted (see TestLiveWhitelistMutation). Under the fallback it
+            # MUST NOT be.
+            s0.send(Message(ALLOWED, {"utterances": ["hi"]}))
+
+            m0.agent_protocol.assert_not_injected(ALLOWED)
+            assert_policy_denied(m0, s0, ALLOWED,
+                                 deny_code="policy_chain_unavailable",
+                                 strict=True)
+        finally:
+            b.stop_all()
+
+
+# ---------------------------------------------------------------------------
+# BRIDGE-1 §4 — two connections must never resolve to one peer id
+# ---------------------------------------------------------------------------
+
+class TestPeerCollisionSuffix:
+    """HIVEMIND-BRIDGE-1 §3.1/§4 — 'two live connections MUST NOT resolve to
+    one Layer-1 identity.'
+
+    A peer id is ``name::session_id``. Both halves come from the connecting
+    client, so two clients deployed with the same node name that also present
+    the same session id ask the server for the same ``source``. Left alone the
+    second connection would overwrite the first in the routing table, and every
+    response addressed to the first client would then be delivered to the
+    second (AGENT-1 §3.2 response isolation). hivemind-core disambiguates the
+    newcomer with a server-generated ``::<hex8>`` suffix, which BRIDGE-1 §3.1
+    explicitly sanctions.
+
+    The test asserts the *property* — both connections stay independently
+    addressable — and only checks the suffix shape as the mechanism the spec
+    names, so a different disambiguator that still keeps both peers routable
+    would need the shape assertion updated but not the behavioural one.
+    """
+
+    def test_colliding_peers_stay_independently_addressable(self, monkeypatch):
+        _override_server_config(monkeypatch)
+        b = TopologyBuilder()
+        try:
+            b.add_master("M0")
+            first = b.add_satellite("S0", upstream=b.get_master("M0"))
+            second = b.add_satellite("S1", upstream=b.get_master("M0"))
+
+            # Force the collision: same node name, same session id. These are
+            # the only two inputs to the peer string, and both are client-chosen.
+            second.identity.name = first.identity.name
+            second.shim._session_id = first.shim.session_id
+
+            b.start_all()
+            m0 = b.get_master("M0")
+
+            assert first.peer != second.peer, (
+                "two live connections resolved to the SAME peer id "
+                f"({first.peer!r}) — BRIDGE-1 §4 collision handling is gone"
+            )
+            assert m0.hm_protocol.clients.get(first.peer) is first._connection, (
+                "the first connection was displaced from the routing table by "
+                "a colliding newcomer"
+            )
+            assert m0.hm_protocol.clients.get(second.peer) is second._connection
+
+            # The mechanism BRIDGE-1 §3.1 sanctions: a server-generated suffix
+            # on the newcomer, not a renaming of the incumbent.
+            base = f"{first.identity.name}::{first.shim.session_id}"
+            assert first.peer == base
+            assert re.fullmatch(re.escape(base) + r"::[0-9a-f]{8}", second.peer), (
+                f"expected a '::<hex8>' collision suffix, got {second.peer!r}")
+
+            # The property that matters: a message addressed to one peer reaches
+            # that peer and only that peer.
+            got_first, got_second = [], []
+            first.shim.emitter.on(HiveMessageType.BUS, got_first.append)
+            second.shim.emitter.on(HiveMessageType.BUS, got_second.append)
+
+            m0.send_to_satellite(second.peer, HiveMessage(
+                HiveMessageType.BUS, payload=Message("test.collision", {"to": "second"})))
+
+            poll_until(lambda: got_second, timeout=3,
+                       message="message addressed to the suffixed peer never arrived")
+            assert got_first == [], (
+                "a message addressed to the second connection was delivered to "
+                "the first — the two peers share a routing entry")
+        finally:
+            b.stop_all()
+
+
+# ---------------------------------------------------------------------------
+# AGENT-1 §3.1 — an unreachable backend is reported, never swallowed
+# ---------------------------------------------------------------------------
+
+class TestBackendUnavailable:
+    """HIVEMIND-AGENT-1 §3.1 — 'when the agent backend is unreachable the node
+    MUST tell the originator explicitly; it MUST NOT drop the message in
+    silence.'
+
+    This pins the SERVER half, which is what AGENT-1 governs: an admitted
+    message whose delivery to the agent bus fails comes back to the peer as a
+    ``hive.policy.denied`` carrying the registered code ``backend_unavailable``
+    (POLICY-1 §6). Silence here is the damaging regression — a satellite with
+    no timeout of its own (NODE-1 §5.5 is still unimplemented) waits forever.
+
+    ``get_bus`` is made to raise ``ConnectionError``, which is precisely how a
+    real agent plugin reports a dead backend bus.
+    """
+
+    def test_unreachable_backend_answers_with_backend_unavailable(self, monkeypatch):
+        ALLOWED = "recognizer_loop:utterance"
+        _override_server_config(monkeypatch)
+
+        b = TopologyBuilder()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"),
+                            allowed_types=[ALLOWED])
+            b.start_all()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
+
+            def _backend_down(client):
+                raise ConnectionError("agent bus is not running")
+
+            m0.hm_protocol.agent_protocol.get_bus = _backend_down
+
+            # The message is admitted by the chain and then cannot be delivered.
+            # The peer must hear about it; the deny code distinguishes "your
+            # message was refused" from "your message was accepted and lost".
+            s0.send(Message(ALLOWED, {"utterances": ["hi"]}))
+
+            assert_policy_denied(m0, s0, ALLOWED,
+                                 deny_code="backend_unavailable", strict=True)
+        finally:
+            b.stop_all()
+
+
+# ---------------------------------------------------------------------------
+# MSG-1 §5 — target_site_id survives a relay hop
+# ---------------------------------------------------------------------------
+
+class TestSiteIdSurvivesRelayHop:
+    """HIVEMIND-MSG-1 §5 — ``target_site_id`` gates delivery, not travel, and a
+    relay that rebuilds an envelope MUST copy it onto the new one.
+
+    Site targeting is read off the OUTER envelope, and a relay does not forward
+    the envelope it received — it unpacks the inner message, re-stamps routing
+    metadata and wraps it again. A rebuild that forgets ``target_site_id``
+    produces a message that still travels but can never be delivered anywhere:
+    the site it was addressed to stops recognising it. Nothing about the
+    failure is visible on the wire, which is why it needs a test.
+
+    The topology is S0 → R1 → M0 with three distinct site ids, and the message
+    is addressed to M0's site. Both halves are asserted: the message IS
+    delivered at the site it names (the id survived), and it is NOT delivered
+    at the relay it crossed (the id was not rewritten to the relay's own site).
+    """
+
+    def test_site_targeted_propagate_is_delivered_beyond_the_relay(self, monkeypatch):
+        TARGETED = "test.site.targeted"
+        _override_server_config(monkeypatch)
+        b = TopologyBuilder()
+        try:
+            b.add_master("M0")
+            m0 = b.get_master("M0")
+            # The relay's upstream connection is the client M0 admits the
+            # forwarded message from, so the grant lives there.
+            relay = b.add_relay("R1", upstream=m0, allowed_types=[TARGETED])
+            b.add_satellite("S0", upstream=relay.listener, allowed_types=[TARGETED])
+            b.start_all()
+            s0 = b.get_satellite("S0")
+
+            assert len({m0.identity.site_id, relay.listener.identity.site_id,
+                        s0.identity.site_id}) == 3, \
+                "precondition: the three nodes must sit at distinct sites"
+
+            inner = HiveMessage(HiveMessageType.BUS, payload=Message(
+                TARGETED, {"hops": 1},
+                {"session": {"session_id": s0.shim.session_id}}))
+            s0.send(HiveMessage(HiveMessageType.PROPAGATE, payload=inner,
+                                target_site_id=m0.identity.site_id))
+
+            poll_until(lambda: m0.agent_protocol.last_injected(TARGETED), timeout=3,
+                       message=("a PROPAGATE addressed to M0's site never reached "
+                                "M0's agent bus — target_site_id was lost or "
+                                "rewritten crossing the relay (MSG-1 §5)"))
+            relay.listener.agent_protocol.assert_not_injected(TARGETED)
+        finally:
+            b.stop_all()
