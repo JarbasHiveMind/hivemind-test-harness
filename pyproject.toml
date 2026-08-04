@@ -29,7 +29,7 @@ dependencies = [
     # protocol v3 (Noise XXpsk2) floor for tests/test_protocol_v3_noise.py: the
     # Noise handshake, the password-strength backstop and derive-psk provisioning
     # all require this stack. Prerelease floors so pip resolves them without --pre.
-    "hivemind-core>=4.10.3a1",
+    "hivemind-core>=4.11.4a2",
     "hivemind_bus_client>=0.10.1a1",
     "poorman-handshake>=2.0.0a1",
 ]
