@@ -28,12 +28,12 @@ from hivemind_bus_client.message import HiveMessage, HiveMessageType
 
 
 def _escalate_msg():
-    inner = HiveMessage(HiveMessageType.THIRDPRTY, payload={"data": "going up"})
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS, payload={"data": "going up"})
     return HiveMessage(HiveMessageType.ESCALATE, payload=inner)
 
 
 def _propagate_msg():
-    inner = HiveMessage(HiveMessageType.THIRDPRTY, payload={"data": "spread out"})
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS, payload={"data": "spread out"})
     return HiveMessage(HiveMessageType.PROPAGATE, payload=inner)
 
 

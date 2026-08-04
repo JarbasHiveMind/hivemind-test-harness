@@ -26,6 +26,8 @@ import pytest
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 
+from tests.conftest import poll_until
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -36,17 +38,17 @@ def _bus_msg(text: str = "hello") -> Message:
 
 
 def _propagate_msg() -> HiveMessage:
-    inner = HiveMessage(HiveMessageType.THIRDPRTY, {"data": "prop-test"})
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS, {"data": "prop-test"})
     return HiveMessage(HiveMessageType.PROPAGATE, payload=inner)
 
 
 def _escalate_msg() -> HiveMessage:
-    inner = HiveMessage(HiveMessageType.THIRDPRTY, {"data": "esc-test"})
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS, {"data": "esc-test"})
     return HiveMessage(HiveMessageType.ESCALATE, payload=inner)
 
 
 def _broadcast_msg() -> HiveMessage:
-    inner = HiveMessage(HiveMessageType.THIRDPRTY, {"data": "bcast-test"})
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS, {"data": "bcast-test"})
     return HiveMessage(HiveMessageType.BROADCAST, payload=inner)
 
 
@@ -134,15 +136,17 @@ class TestPropagateAllTopologies:
         b = star_topology
         s1_received = []
         s2_received = []
-        # core forwards the unpacked inner payload to peers, so siblings receive
-        # the propagated THIRDPRTY message directly (not the PROPAGATE wrapper).
+        # NODE-1 §3.3: core keeps the envelope, so siblings receive the
+        # PROPAGATE wrapper, not a bare inner frame.
         b.get_satellite("S1").shim.emitter.on(
-            HiveMessageType.THIRDPRTY, s1_received.append
+            HiveMessageType.PROPAGATE, s1_received.append
         )
         b.get_satellite("S2").shim.emitter.on(
-            HiveMessageType.THIRDPRTY, s2_received.append
+            HiveMessageType.PROPAGATE, s2_received.append
         )
         b.get_satellite("S0").send(_propagate_msg())
+        poll_until(lambda: s1_received and s2_received,
+                   message="siblings did not receive the PROPAGATE")
         assert len(s1_received) >= 1
         assert len(s2_received) >= 1
 
@@ -268,16 +272,19 @@ class TestBroadcastAllTopologies:
     def test_broadcast_siblings_receive(self):
         b = self._admin_topology(n_extra=2)
         try:
-            # peers receive the unpacked inner THIRDPRTY content, not the wrapper
+            # NODE-1 §3.3: peers receive the BROADCAST wrapper, not the
+            # unpacked inner frame
             s1_recv = []
             s2_recv = []
             b.get_satellite("S1").shim.emitter.on(
-                HiveMessageType.THIRDPRTY, s1_recv.append
+                HiveMessageType.BROADCAST, s1_recv.append
             )
             b.get_satellite("S2").shim.emitter.on(
-                HiveMessageType.THIRDPRTY, s2_recv.append
+                HiveMessageType.BROADCAST, s2_recv.append
             )
             b.get_satellite("S0").send(_broadcast_msg())
+            poll_until(lambda: s1_recv and s2_recv,
+                       message="siblings did not receive the BROADCAST")
             assert len(s1_recv) == 1
             assert len(s2_recv) == 1
         finally:

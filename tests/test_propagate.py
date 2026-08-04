@@ -5,9 +5,11 @@ import pytest
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 
+from tests.conftest import poll_until
+
 
 def _propagate_msg():
-    inner = HiveMessage(HiveMessageType.THIRDPRTY,
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS,
                         payload={"data": "propagate-payload"})
     return HiveMessage(HiveMessageType.PROPAGATE, payload=inner)
 
@@ -22,17 +24,22 @@ class TestPropagateFanOut:
         s1 = b.get_satellite("S1")
         s2 = b.get_satellite("S2")
 
-        # core forwards the unpacked inner payload to peers, so siblings receive
-        # the propagated THIRDPRTY content, not the PROPAGATE wrapper.
+        # NODE-1 §3.3: core keeps the envelope, so a sibling receives the
+        # PROPAGATE wrapper carrying the inner payload, not a bare inner frame.
         s1_received = []
         s2_received = []
-        s1.shim.emitter.on(HiveMessageType.THIRDPRTY, s1_received.append)
-        s2.shim.emitter.on(HiveMessageType.THIRDPRTY, s2_received.append)
+        s1.shim.emitter.on(HiveMessageType.PROPAGATE, s1_received.append)
+        s2.shim.emitter.on(HiveMessageType.PROPAGATE, s2_received.append)
 
         s0.send(_propagate_msg())
+        poll_until(lambda: s1_received and s2_received,
+                   message="siblings did not receive the PROPAGATE")
 
         assert len(s1_received) == 1, "S1 should receive the propagated content"
         assert len(s2_received) == 1, "S2 should receive the propagated content"
+        for got in (s1_received[0], s2_received[0]):
+            assert got.payload.msg_type == HiveMessageType.RENDEZVOUS, \
+                f"inner payload type must survive the relay, got {got.payload.msg_type}"
 
     def test_sender_does_not_receive_own_propagate(self, star_topology):
         b = star_topology

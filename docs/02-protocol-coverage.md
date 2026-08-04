@@ -27,8 +27,7 @@ is present — point `HIVEMIND_MICROPYTHON_CLIENT` at it, or CI's
 | PING | `ping` | both | Network topology discovery | tested | `test_ping_pong.py` (49 tests), `test_ping_exactly_once.py` (11 tests) |
 | QUERY | `query` | upstream+response | Like ESCALATE but stops at first responder | tested | `test_query.py` (6 tests) |
 | CASCADE | `cascade` | both+response | Like PROPAGATE but expects responses from all | tested | `test_cascade.py` (8 tests) |
-| RENDEZVOUS | `rendezvous` | reserved | Rendezvous-node peer discovery | not implemented | `test_unimplemented_types.py` |
-| THIRDPRTY | `3rdparty` | both | User-land free-form message | tested | `test_propagate.py`, `test_unimplemented_types.py` |
+| RENDEZVOUS | `rendezvous` | reserved | Rendezvous-node peer discovery; also the harness stand-in for an unhandled inner payload | not implemented | `test_unimplemented_types.py`, `test_propagate.py`, `test_escalate.py` |
 | BINARY | `bin` | satellite→master | Binary data container (7 subtypes) | tested | `test_binary.py`, `test_e2e_binary_skill.py`. **Gap:** the binarize (bitstring) encoding is not covered — see [FAQ](../FAQ.md) |
 
 ### Not-yet-implemented types (RENDEZVOUS)
@@ -138,7 +137,7 @@ Counts from `pytest tests --collect-only -q`.
 | `test_route_metadata.py` | 8 | Route/hop metadata carried on forwarded messages |
 | `test_routing.py` | 7 | Deep chain escalate/propagate, hop tracking |
 | `test_shared_bus.py` | 4 | Passive bus monitoring (share_bus flag) |
-| `test_unimplemented_types.py` | 5 | RENDEZVOUS / unknown-type stub safety |
+| `test_unimplemented_types.py` | 4 | RENDEZVOUS / unknown-type stub safety |
 | `test_voice_pe_protocol.py` | 18 | Voice PE protocol message handling |
 
 ### Live OVOS skill execution (CI job: `ovos-e2e`)

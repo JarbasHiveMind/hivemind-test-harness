@@ -187,7 +187,7 @@ class TestIllegalPropagateDisconnects:
             illegal_calls = []
             m0.hm_protocol.illegal_callback = illegal_calls.append
 
-            inner = HiveMessage(HiveMessageType.THIRDPRTY, payload={"data": "test"})
+            inner = HiveMessage(HiveMessageType.RENDEZVOUS, payload={"data": "test"})
             propagate = HiveMessage(HiveMessageType.PROPAGATE, payload=inner)
             s0.send(propagate)
 
@@ -220,7 +220,7 @@ class TestIllegalEscalateDisconnects:
             illegal_calls = []
             m0.hm_protocol.illegal_callback = illegal_calls.append
 
-            inner = HiveMessage(HiveMessageType.THIRDPRTY, payload={"data": "escalate-test"})
+            inner = HiveMessage(HiveMessageType.RENDEZVOUS, payload={"data": "escalate-test"})
             escalate = HiveMessage(HiveMessageType.ESCALATE, payload=inner)
             s0.send(escalate)
 
