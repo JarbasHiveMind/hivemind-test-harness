@@ -1041,7 +1041,7 @@ wheels = [
 
 [[package]]
 name = "hivemind-audio-binary-protocol"
-version = "2.1.8a1"
+version = "2.2.0a1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1049,14 +1049,14 @@ dependencies = [
     { name = "ovos-plugin-manager" },
     { name = "ovos-simple-listener" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/30/a9/affaf124afd8e5dae0696cf9b7eaa9cef717ac813f42ed3fafd503ea1c21/hivemind_audio_binary_protocol-2.1.8a1.tar.gz", hash = "sha256:c154e2e9011af42a73d7b4247676bde9d4c47ac096f900045e1b7adb594574ce", size = 17560, upload-time = "2026-08-04T19:47:47.642Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/61/f02042d0b2e0cc396fb63e55a358555694a32bfa8b3df8ebc45c50335ad7/hivemind_audio_binary_protocol-2.2.0a1.tar.gz", hash = "sha256:8c120b8d263a50e64d6ae2284d22f5a8cf14a32080473c1d165bc8018d12422f", size = 17416, upload-time = "2026-08-10T15:39:37.341Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/95/770f15129f5f0697a660ab63753a273c6d192c260748809a0bc6fb940e5f/hivemind_audio_binary_protocol-2.1.8a1-py3-none-any.whl", hash = "sha256:e22bd8a69aefb3dbbd235b5405022a491acaf7c1b5974be1329c59ee626125c6", size = 15908, upload-time = "2026-08-04T19:47:46.852Z" },
+    { url = "https://files.pythonhosted.org/packages/28/4a/b16445e512b1f7a1a909d5b62ac291722feeea659e03378dd9829fd1e5d7/hivemind_audio_binary_protocol-2.2.0a1-py3-none-any.whl", hash = "sha256:d16a57c75c5b4f4c4bdad52046168794f848f1c9128f71bdba9e6688bf09e3ca", size = 15752, upload-time = "2026-08-10T15:39:36.46Z" },
 ]
 
 [[package]]
 name = "hivemind-bus-client"
-version = "1.0.4a1"
+version = "1.0.6a1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bitstring" },
@@ -1069,9 +1069,9 @@ dependencies = [
     { name = "pycryptodomex" },
     { name = "z85base91" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/70/25d358be76e3a091fda5efff46eaed031ad909ff41b659bff4718795a6b3/hivemind_bus_client-1.0.4a1.tar.gz", hash = "sha256:a7ce64d563353ff985058004e66ad7114ee6e57be5df1b5ffc04d9b744383140", size = 455428, upload-time = "2026-08-04T00:27:10.003Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/41/78/b1cd0e5c4d6742eda76cb0cecfcb81a660dd9036f5a047f60b146e451e46/hivemind_bus_client-1.0.6a1.tar.gz", hash = "sha256:c9bc9087147c0a78d3b623195b9347afabb8c91e6eb40a124ef2210829b879a7", size = 463992, upload-time = "2026-08-10T13:57:34.537Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/5a/ffe3972616c297a7e5f585952439c99b1b00cfdd774abeb78359f7f00363/hivemind_bus_client-1.0.4a1-py3-none-any.whl", hash = "sha256:6cc974d6d853fb4026ecd3ff7f3c144ef67263d5b1b5731c432b4409aa45eeaf", size = 80675, upload-time = "2026-08-04T00:27:08.456Z" },
+    { url = "https://files.pythonhosted.org/packages/90/38/fa29ed5d8a6ab29dec6ab63fcb1db693385003e499b6c8b202a6c0f873c5/hivemind_bus_client-1.0.6a1-py3-none-any.whl", hash = "sha256:01e883feedaa35a802a8d41093508745693e5424ac126a0befa16511f9f40d06", size = 84898, upload-time = "2026-08-10T13:57:33.214Z" },
 ]
 
 [[package]]
@@ -1099,6 +1099,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c3/92/d91b9de223e9445bcb1a549b39ac0d21d9b568b5f5f6f935d69510c9b141/hivemind_core-4.11.4a2.tar.gz", hash = "sha256:49e7e9c9036ee7544796fd775d509b5651b07a38474591d2458fd7f1d40a4482", size = 112062, upload-time = "2026-08-04T19:27:50.375Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0a/76/9735e56a58c94dce33e500ac8d7be22dd6d0676afdad944224ca9c492406/hivemind_core-4.11.4a2-py3-none-any.whl", hash = "sha256:0680e9eeafbee1d2fa94a5a19cc0ad60411d2f01fc0d28ccd214e1c1bb0b8bde", size = 63928, upload-time = "2026-08-04T19:27:48.939Z" },
+]
+
+[[package]]
+name = "hivemind-http-protocol"
+version = "0.0.7a1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hivemind-bus-client" },
+    { name = "hivemind-core" },
+    { name = "hivemind-plugin-manager" },
+    { name = "poorman-handshake" },
+    { name = "pybase64" },
+    { name = "pyopenssl" },
+    { name = "tornado" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/13/5c/750068143c4a115da1559d19b9ea9cf407e8fcaba322fd5921a5bcd351b1/hivemind_http_protocol-0.0.7a1.tar.gz", hash = "sha256:337e12eb7ad74fe000bf991196cd420f3adf66b31586825392d504d79e064f60", size = 23208, upload-time = "2026-08-10T14:36:56.681Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/52/1248468224b72190da3d7ead6bedecc4ce4396267af4a448d2813c26dc94/hivemind_http_protocol-0.0.7a1-py3-none-any.whl", hash = "sha256:0bfc8a99fd463cabf27f150a488a4998c41512db4171454c0c5c45dada1a37e3", size = 13945, upload-time = "2026-08-10T14:36:55.814Z" },
 ]
 
 [[package]]
@@ -1191,6 +1209,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "hivemind-audio-binary-protocol" },
+    { name = "hivemind-http-protocol" },
     { name = "hivemind-presence" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1220,9 +1239,10 @@ plot = [
 
 [package.metadata]
 requires-dist = [
-    { name = "hivemind-audio-binary-protocol", marker = "extra == 'dev'" },
-    { name = "hivemind-bus-client", specifier = ">=0.10.1a1" },
+    { name = "hivemind-audio-binary-protocol", marker = "extra == 'dev'", specifier = ">=2.1.8a2" },
+    { name = "hivemind-bus-client", specifier = ">=1.0.6a1" },
     { name = "hivemind-core", specifier = ">=4.11.4a2" },
+    { name = "hivemind-http-protocol", marker = "extra == 'dev'", specifier = ">=0.0.7a1" },
     { name = "hivemind-presence", marker = "extra == 'dev'", specifier = ">=0.0.5a1" },
     { name = "hivescope", specifier = ">=0.6.2a1" },
     { name = "hivescope", extras = ["ovos"], marker = "extra == 'ovos'", specifier = ">=0.6.2a1" },
