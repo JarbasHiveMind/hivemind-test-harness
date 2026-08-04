@@ -1,5 +1,5 @@
 """
-TS-STUB-01..05 — Unimplemented HiveMessage types.
+TS-STUB-01..04 — Unimplemented HiveMessage types.
 
 QUERY, CASCADE, PING, and RENDEZVOUS are defined in HiveMessageType but have no
 handler in HiveMindListenerProtocol. They fall through to handle_unknown_message(),
@@ -7,9 +7,9 @@ which is an empty stub (does nothing). These tests verify:
   1. Sending them does not crash the master.
   2. The master records the inbound message.
 
-THIRDPRTY is used as an inner payload in PROPAGATE/ESCALATE/BROADCAST but is also
-a valid top-level message type. As a top-level message it also falls to
-handle_unknown_message().
+RENDEZVOUS doubles as the harness's stand-in for an arbitrary inner payload in
+PROPAGATE/ESCALATE/BROADCAST, because it is a registry type that no handler on
+either side claims.
 
 TODO: When QUERY/CASCADE/PING/RENDEZVOUS are implemented, replace these no-crash
       tests with behavioral tests that verify the actual handler logic.
@@ -106,25 +106,6 @@ class TestUnimplementedTypes:
             s0.send(msg)
 
             m0.recorder.assert_received(HiveMessageType.RENDEZVOUS, direction="in")
-        finally:
-            if b is not None:
-                b.stop_all()
-
-    def test_thirdprty_toplevel_does_not_crash(self):
-        """TS-STUB-05 — THIRDPRTY as a top-level message falls to handle_unknown_message.
-        THIRDPRTY is typically used as an inner payload inside PROPAGATE/ESCALATE,
-        but is also a valid standalone message type."""
-        b = None
-        try:
-            b = _make_topology()
-            m0 = b.get_master("M0")
-            s0 = b.get_satellite("S0")
-
-            msg = HiveMessage(HiveMessageType.THIRDPRTY,
-                              payload={"vendor": "acme", "data": "custom payload"})
-            s0.send(msg)
-
-            m0.recorder.assert_received(HiveMessageType.THIRDPRTY, direction="in")
         finally:
             if b is not None:
                 b.stop_all()

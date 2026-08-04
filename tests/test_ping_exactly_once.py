@@ -369,13 +369,6 @@ class TestPingExactlyOnceDiamond:
                     f"Duplicate {pair} at {node_name}. All: {flood_records}"
                 seen.add(pair)
 
-    @pytest.mark.xfail(
-        reason="cross-branch PING flooding through a diamond (S0→R1→M0→R2→S2) "
-               "does not currently reach the opposite branch's leaves; whether "
-               "PING should flood across branches is unverified against the "
-               "spec. Tracked in hivemind-test-harness#6.",
-        strict=True,
-    )
     def test_cross_branch_pings_reach_siblings(self, diamond):
         """S0's responsive PING (via R1→M0→R2) reaches S2 and S3 exactly once."""
         b = diamond

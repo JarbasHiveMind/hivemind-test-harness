@@ -322,21 +322,36 @@ class TestCrossRuntimeMatrix:
 # ---------------------------------------------------------------------------
 
 class TestReservedWireCodes:
-    """WIRE-1 §4.2 — codes 8 and 11 are RESERVED: a sender MUST NOT emit them,
-    the registry MUST NOT reuse them, and a receiver MUST reject a frame
-    carrying an unassigned/reserved value."""
+    """WIRE-1 §4.2 — codes 0-10 and 12 are assigned; code 11 and codes 13-31
+    are unassigned. A revision MUST NOT give code 11 to another type, and a
+    receiver MUST reject a frame carrying an unassigned value as malformed.
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="hivemind_bus_client.serialization._INT2TYPE reuses the reserved "
-               "codes (8→CASCADE, 11→THIRDPRTY) and decode_bitstring defaults an "
-               "unknown 5-bit value to 11 (THIRDPRTY) instead of rejecting it, "
-               "violating WIRE-1 §4.2.",
-    )
-    def test_reserved_codes_are_not_assigned(self):
+    Code 11 was ``THIRDPRTY``, which HIVEMIND-MSG-1 §3 removed. Code 8 is
+    ``CASCADE`` and is assigned — an earlier version of this test called it
+    reserved, which the spec never said.
+    """
+
+    def test_retired_code_11_is_not_reassigned(self):
         from hivemind_bus_client.serialization import _INT2TYPE
-        assert 8 not in _INT2TYPE, "code 8 is reserved and MUST NOT be assigned"
-        assert 11 not in _INT2TYPE, "code 11 is reserved and MUST NOT be assigned"
+        assert 11 not in _INT2TYPE, \
+            "code 11 is retired (was THIRDPRTY) and MUST NOT be reassigned"
+
+    def test_assigned_codes_are_exactly_the_spec_table(self):
+        from hivemind_bus_client.serialization import _INT2TYPE
+        assert sorted(_INT2TYPE) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12], \
+            f"WIRE-1 §4.2 assigns 0-10 and 12, got {sorted(_INT2TYPE)}"
+
+    def test_unassigned_code_is_rejected_as_malformed(self):
+        """A receiver MUST reject an unassigned code instead of mapping it to
+        a type. Code 11 and 13-31 are the unassigned range."""
+        from hivemind_bus_client.serialization import _decode_bitstring_v1
+        from bitstring import BitStream
+
+        # the v1 body opens with the 5-bit message-type code; the decoder must
+        # refuse an unassigned one before it reads anything else
+        for code in (11, 13, 31):
+            with pytest.raises(ValueError):
+                _decode_bitstring_v1(BitStream(uint=code, length=5))
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ from hivemind_bus_client.message import HiveMessage, HiveMessageType
 
 
 def _escalate_msg():
-    inner = HiveMessage(HiveMessageType.THIRDPRTY,
+    inner = HiveMessage(HiveMessageType.RENDEZVOUS,
                         payload={"data": "escalate-payload"})
     return HiveMessage(HiveMessageType.ESCALATE, payload=inner)
 
