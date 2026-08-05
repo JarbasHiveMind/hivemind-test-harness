@@ -116,8 +116,16 @@ class TestIntercomInnerDelivery:
         """RSA-encrypted INTERCOM(BUS) → master injects the BUS on agent bus."""
         pass
 
-    def test_unencrypted_intercom_bus_delivered(self, minimal_topology):
-        """Unencrypted INTERCOM(BUS) with no target_pubkey → inner BUS injected."""
+    def test_unsigned_intercom_is_dropped(self, minimal_topology):
+        """HIVEMIND-CRYPTO-1 §5 — an INTERCOM whose origin cannot be
+        authenticated MUST be dropped, not dispatched.
+
+        This test previously asserted the opposite: that an unsigned INTERCOM
+        with no target_pubkey still had its inner BUS injected. That was the
+        pre-hardening behaviour, and pinning it would have locked in an origin
+        authentication bypass. handle_intercom_message now fails closed when
+        there is no signature or no pinned/known public key to verify against.
+        """
         b = minimal_topology
         s0 = b.get_satellite("S0")
         m0 = b.get_master("M0")
@@ -130,7 +138,12 @@ class TestIntercomInnerDelivery:
 
         s0.send(intercom)
 
-        m0.agent_protocol.assert_injected("recognizer_loop:utterance")
+        injected = [m for m in m0.agent_protocol.injected
+                    if getattr(m, "msg_type", None) == "recognizer_loop:utterance"]
+        assert not injected, (
+            "an unsigned INTERCOM must not reach the agent bus: "
+            f"got {injected}"
+        )
 
 
 # ---------------------------------------------------------------------------

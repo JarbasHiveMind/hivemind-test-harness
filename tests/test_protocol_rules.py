@@ -101,19 +101,22 @@ class TestTransportAlwaysForwards:
     def test_propagate_always_forwards_to_peers(self, star_topology):
         """PROPAGATE reaches all sibling satellites."""
         b = star_topology
-        # hivemind-core forwards the *unpacked* inner payload to peers, so a
-        # sibling receives the propagated BUS content (recognizer_loop:utterance),
-        # not the PROPAGATE wrapper.
+        # hivemind-core keeps the envelope when it forwards (_rewrap,
+        # HIVEMIND-NODE-1 §3.3), so a sibling receives the PROPAGATE wrapper
+        # with the BUS content still inside it — not the bare inner payload.
         received = {f"S{i}": [] for i in range(3)}
         for i in range(3):
             b.get_satellite(f"S{i}").shim.emitter.on(
-                HiveMessageType.BUS, received[f"S{i}"].append
+                HiveMessageType.PROPAGATE, received[f"S{i}"].append
             )
-        # S0 sends PROPAGATE — S1 and S2 should receive the content, S0 should not
+        # S0 sends PROPAGATE — S1 and S2 should receive it, S0 should not
         b.get_satellite("S0").send(_propagate_bus())
         assert len(received["S0"]) == 0, "Sender must not receive its own propagated message"
-        assert len(received["S1"]) == 1, "S1 must receive the propagated BUS"
-        assert len(received["S2"]) == 1, "S2 must receive the propagated BUS"
+        assert len(received["S1"]) == 1, "S1 must receive the propagated message"
+        assert len(received["S2"]) == 1, "S2 must receive the propagated message"
+        for got in (received["S1"][0], received["S2"][0]):
+            assert got.payload.msg_type == HiveMessageType.BUS, \
+                f"inner payload must stay a BUS, got {got.payload.msg_type}"
 
     def test_propagate_crosses_relay_upstream(self, chain_topology):
         """PROPAGATE from S0 (behind R1) reaches M0."""
@@ -157,18 +160,23 @@ class TestTransportAlwaysForwards:
         b.add_satellite("S2", upstream=b.get_master("M0"))
         b.start_all()
         try:
-            # peers receive the unpacked inner BUS content, not the wrapper
+            # A sibling receives the BROADCAST wrapper with the BUS still
+            # inside it: _rewrap keeps the envelope (HIVEMIND-NODE-1 §3.3),
+            # it does not hand peers the bare inner payload.
             s1_recv = []
             s2_recv = []
             b.get_satellite("S1").shim.emitter.on(
-                HiveMessageType.BUS, s1_recv.append
+                HiveMessageType.BROADCAST, s1_recv.append
             )
             b.get_satellite("S2").shim.emitter.on(
-                HiveMessageType.BUS, s2_recv.append
+                HiveMessageType.BROADCAST, s2_recv.append
             )
             b.get_satellite("S0").send(_broadcast_bus())
-            assert len(s1_recv) == 1, "S1 must receive the broadcast BUS"
-            assert len(s2_recv) == 1, "S2 must receive the broadcast BUS"
+            assert len(s1_recv) == 1, "S1 must receive the broadcast"
+            assert len(s2_recv) == 1, "S2 must receive the broadcast"
+            for got in (s1_recv[0], s2_recv[0]):
+                assert got.payload.msg_type == HiveMessageType.BUS, \
+                    f"inner payload must stay a BUS, got {got.payload.msg_type}"
         finally:
             b.stop_all()
 
