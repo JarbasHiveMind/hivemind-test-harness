@@ -190,10 +190,22 @@ class TestPingExactlyOnceMinimal:
         fid = _flood_id(ping)
         m0_peer = b.get_master("M0").hm_protocol.peer
 
-        # S0 should see M0's PING exactly once
-        s0_pings = [(f, p) for f, p in sat_rec["S0"] if f == fid]
-        assert len(s0_pings) == 1, f"S0 should see M0 PING once, got {len(s0_pings)}"
-        assert s0_pings[0][1] == m0_peer
+        # S0 should see M0's PING exactly once. Filter on the originating
+        # peer, not on the flood_id alone: a responsive PING reuses the
+        # flood_id it answers, and since HiveMind-core#216 a relay answers
+        # downstream as well as upstream so that it appears in the hive map
+        # of its own clients. S0 therefore legitimately sees this flood_id
+        # twice — once from M0 and once as R1's own announcement — and
+        # counting by flood_id alone reads that as a duplicate.
+        s0_from_m0 = [(f, p) for f, p in sat_rec["S0"] if f == fid and p == m0_peer]
+        assert len(s0_from_m0) == 1, \
+            f"S0 should see M0 PING once, got {len(s0_from_m0)}"
+
+        # NODE-1 §4 still holds for every other answerer: one answer per node.
+        s0_flood = [(f, p) for f, p in sat_rec["S0"] if f == fid]
+        others = [p for _, p in s0_flood if p != m0_peer]
+        assert len(others) == len(set(others)), \
+            f"a node must answer a flood once, got repeats: {others}"
 
     def test_master_sees_satellite_response_once(self, minimal):
         b = minimal
