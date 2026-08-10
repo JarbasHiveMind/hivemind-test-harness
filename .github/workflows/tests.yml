@@ -172,8 +172,16 @@ jobs:
           5) FILES="tests/test_e2e_relay_acl.py tests/test_e2e_relay_skills.py" ;;
           6) FILES="tests/test_e2e_scheduler.py tests/test_e2e_session.py tests/test_e2e_shared_bus.py tests/test_e2e_skills.py tests/test_e2e_stop.py tests/test_e2e_volume_phal.py tests/test_topology_plots.py" ;;
         esac
+        # -m "not slow" matches the harness-tests job above. Shard 6 carries
+        # tests/test_topology_plots.py, whose TestPlotHugeHive and
+        # TestPlotChaoticHive cases build 15-satellite hives and render them;
+        # they cannot finish inside --timeout=300 and failed every PR here.
+        # nightly-slow.yml already runs the slow-marked cases against the same
+        # file with --timeout=1800, so deselecting them costs no coverage —
+        # it just moves them off the PR critical path, which is what the
+        # marker was introduced for.
         .venv/bin/python -m pytest $FILES \
-          -p no:ovoscope --timeout=300 -v --tb=short
+          -p no:ovoscope --timeout=300 -v --tb=short -m "not slow"
 
   # Embedded interop, REQUIRED. Every embedded module guards its imports with
   # pytest.importorskip("hivemind.client" / "hivemind.crypto"), so without the
