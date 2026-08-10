@@ -139,6 +139,16 @@ Counts from `pytest tests --collect-only -q`.
 | `test_shared_bus.py` | 4 | Passive bus monitoring (share_bus flag) |
 | `test_unimplemented_types.py` | 4 | RENDEZVOUS / unknown-type stub safety |
 | `test_voice_pe_protocol.py` | 18 | Voice PE protocol message handling |
+| `test_conformance_wave5.py` | 14 | TRANSPORT-1 §4, NODE-1 §5.5, WIRE-1 §4.1 and AUDIO-1 §2 |
+| `test_spec_agent1.py` | 9 | HIVEMIND-AGENT-1 agent-side contract |
+| `test_spec_audio1.py` | 16 | HIVEMIND-AUDIO-1 binary audio contract |
+| `test_spec_bridge1.py` | 6 | HIVEMIND-BRIDGE-1 source/destination/session fidelity |
+| `test_spec_crypto1.py` | 26 | HIVEMIND-CRYPTO-1 handshake, AEAD and origin authentication |
+| `test_spec_msg1.py` | 26 | HIVEMIND-MSG-1 normative requirements |
+| `test_spec_musts.py` | 41 | Cross-spec MUSTs that had no other coverage |
+| `test_spec_node1.py` | 8 | HIVEMIND-NODE-1 routing, flooding and relay duties |
+| `test_spec_policy1.py` | 13 | HIVEMIND-POLICY-1 admission chain |
+| `test_spec_wire1.py` | 47 | HIVEMIND-WIRE-1 framing and the frozen type registry |
 
 ### Live OVOS skill execution (CI job: `ovos-e2e`)
 
