@@ -298,7 +298,7 @@ Each scenario is a named test case with:
 
 - **Expected**: All nodes respond. M0 collects route data for all 6 satellites + 3 sub-masters
 
-See `test_ping_pong.py` for 49 comprehensive PING tests covering topology discovery,
+See `test_ping_pong.py` for 50 comprehensive PING tests covering topology discovery,
 response aggregation, and multi-hop scenarios.
 
 ---

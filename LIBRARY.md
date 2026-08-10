@@ -305,21 +305,23 @@ A recorded HiveMessage.
 ### Pattern 1: Test Protocol Correctness
 
 ```python
-def test_message_routing_respects_blacklist():
+def test_message_routing_respects_whitelist():
     from hivescope import TopologyBuilder
     from hivescope.assertions import assert_message_routed
-    
+
     b = TopologyBuilder()
     m = b.add_master("M0")
-    m.register_satellite("sat-key", msg_blacklist=["speak"])
+    # allowed_types is the only ACL. It is a whitelist, and it denies by default,
+    # so leaving "speak" out of it is how you block "speak".
+    m.register_satellite("sat-key", allowed_types=["recognizer_loop:utterance"])
     s = b.add_satellite("S0", upstream=m)
-    
+
     b.start_all()
     try:
         # Satellite tries to send "speak" — should be blocked
         s.recorder.clear()
         # ... send speak ...
-        
+
         assert_message_routed(m, "speak", count=0)
     finally:
         b.stop_all()

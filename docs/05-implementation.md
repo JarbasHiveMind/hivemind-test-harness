@@ -504,17 +504,14 @@ class TopologyBuilder:
         self._connections.append((name, upstream.name))
         return node
 
-    def add_relay(self, name: str, upstream: MasterNode, **kwargs):
-        """Node that is both satellite (to upstream) and master (to its own downstreams)."""
-        sat_node = SatelliteNode.create(name + "_sat", **kwargs)
-        master_node = MasterNode.create(name + "_master", **kwargs)
-        # The relay's satellite-side internal bus IS the relay's master-side agent bus
-        # so messages arriving from upstream propagate to downstream clients
-        # (TopologyBuilder wires these together on start_all)
-        self._satellites[name + "_sat"] = sat_node
-        self._masters[name + "_master"] = master_node
-        self._connections.append((name + "_sat", upstream.name))
-        return sat_node, master_node
+    def add_relay(self, name: str, upstream: MasterNode | RelayNode,
+                  **connect_kwargs) -> RelayNode:
+        """Node that is both satellite (to upstream) and master (to its own downstreams).
+
+        Returns a RelayNode. Read ``relay.listener`` for the master side that
+        downstream satellites and relays attach to.
+        """
+        ...
 
     def start_all(self):
         """Connect all satellites to their masters in-process."""
@@ -607,7 +604,7 @@ def chain_topology(request):
     """T3: M0 → relay R1 → satellite S0."""
     b = TopologyBuilder()
     b.add_master("M0")
-    _, relay_master = b.add_relay("R1", upstream=b.get_master("M0"))
+    relay_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
     b.add_satellite("S0", upstream=relay_master)
     b.start_all()
     yield b

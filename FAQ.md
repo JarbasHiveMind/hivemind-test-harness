@@ -154,7 +154,7 @@ agent = OvoscopeAgentProtocol(
 ```
 
 ### Why do ACL tests need separate fixtures?
-ACL (skill_blacklist, intent_blacklist, msg_blacklist) is set at satellite registration time and is immutable per connection. Each ACL scenario needs its own topology with different satellite registrations.
+ACL (`allowed_types`, plus `skill_blacklist` and `intent_blacklist`) is set at satellite registration time and is fixed for the life of the connection. Each ACL scenario needs its own topology with different satellite registrations. `msg_blacklist` is accepted by `register_satellite` for API compatibility and is ignored: hivemind-core is whitelist-only.
 
 ### How does multi-satellite response isolation work?
 HiveMind tracks the originating satellite via `message.context["destination"]`. Responses route only to the satellite that sent the utterance — other satellites are unaffected. Tested in `test_e2e_multi_satellite.py`.
