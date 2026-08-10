@@ -102,6 +102,17 @@ class TestFloodLoopSuppression:
     """NODE-1 §3.4 — a routing message must not loop forever; the flood_id gate
     bounds each node's participation in a flood to exactly once."""
 
+    # The 30s project-wide per-test budget is too tight for this one. The
+    # diamond fixture builds SEVEN nodes, each generating a fresh 2048-bit RSA
+    # identity and completing a password handshake: ~13s of fixture setup and
+    # ~3s of assertions on an idle machine, and a loaded CI runner multiplies
+    # that until the test trips the budget. Every such failure has been the box
+    # being busy, never a hang — raising the budget makes it pass, which is the
+    # proof. A gate that flips under load teaches people to ignore red, so give
+    # this one room; it still fails fast if the flood really does not terminate,
+    # because a non-terminating flood recirculates forever rather than finishing
+    # slowly.
+    @pytest.mark.timeout(180)
     def test_flood_terminates_and_reinjection_is_suppressed(self, cyclic_topology):
         b = cyclic_topology
         m0 = b.get_master("M0")
@@ -1262,3 +1273,831 @@ class TestPrivateKeyIsNeverTransmitted:
             "precondition: the master's public key must appear in the handshake"
         assert private_body[:64] not in wire, \
             "the private key MUST NOT be transmitted"
+
+
+def require_wire1_bus_client():
+    """Fail with an actionable message when the installed bus client predates
+    the WIRE-1 §4.2/§4.3 enforcement these tests pin.
+
+    Deliberately not a skip: an environment below the declared floor is a
+    broken environment, and a silent skip would hide the fact that nothing
+    checked the wire contract on this run.
+    """
+    from hivemind_bus_client.version import (VERSION, VERSION_BUILD,
+                                             VERSION_MAJOR, VERSION_MINOR)
+    installed = (VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD)
+    assert installed >= WIRE1_BUS_CLIENT_FLOOR, (
+        f"installed hivemind_bus_client {VERSION} predates the WIRE-1 §4.2/§4.3 "
+        f"enforcement (needs >= "
+        f"{'.'.join(str(n) for n in WIRE1_BUS_CLIENT_FLOOR)}a1, see "
+        f"pyproject.toml). This is a stale environment, not a protocol "
+        f"regression — upgrade the client before reading anything into the "
+        f"failures below."
+    )
+
+
+class TestWireMessageTypeAssignment:
+    """WIRE-1 §4.2 — the 5-bit message-type assignment is FROZEN.
+
+    An earlier revision of the spec called 8 and 11 "reserved"; §4.2 was
+    corrected to state that codes 0-12 are all assigned (8=CASCADE,
+    11=THIRDPRTY) and that "a revision MUST NOT renumber an assigned code,
+    even to make the ordering tidier". This class pins the table itself, so a
+    renumbering breaks loudly here instead of silently breaking every deployed
+    decoder.
+    """
+
+    def test_assignment_matches_the_spec_table_exactly(self):
+        """WIRE-1 §4.2 — every code 0-12 maps to the type the spec assigns it,
+        and nothing else is assigned."""
+        from hivemind_bus_client.serialization import _INT2TYPE
+
+        actual = {code: t.name for code, t in _INT2TYPE.items()}
+        assert actual == WIRE1_MESSAGE_TYPE_CODES, (
+            "the WIRE-1 §4.2 message-type assignment is frozen; this diff is a "
+            "wire-breaking renumbering, not a tidy-up"
+        )
+
+    def test_no_encoder_path_emits_an_unassigned_code(self):
+        """WIRE-1 §4.2 — 'codes 13-31 are unassigned: a sender MUST NOT emit
+        them.' No message type may map to a code outside 0-12."""
+        from hivemind_bus_client.serialization import _INT2TYPE
+
+        emitted = set(_INT2TYPE)
+        assert emitted <= set(range(13)), (
+            f"encoder can emit unassigned 5-bit codes {sorted(emitted - set(range(13)))}"
+        )
+
+    def test_receiver_rejects_an_unassigned_code_as_malformed(self):
+        """WIRE-1 §4.2 — 'a receiver MUST reject a frame carrying [an
+        unassigned code] as malformed rather than mapping it to any type.'"""
+        require_wire1_bus_client()
+        from bitstring import BitArray
+        from hivemind_bus_client.serialization import decode_bitstring
+
+        for code in (13, 20, 31):
+            frame = BitArray()
+            frame.append('uint:1=1')      # start marker
+            frame.append('uint:1=0')      # not versioned
+            frame.append(f'uint:5={code}')  # unassigned message type
+            frame.append('uint:1=0')      # not compressed
+            frame.append('uint:8=2')      # 2 metadata bytes
+            frame.append(b"{}")
+            frame.append(b'"x"')
+            while len(frame) % 8:
+                frame.insert('uint:1=0', 0)
+
+            with pytest.raises(ValueError) as exc:
+                decode_bitstring(frame.bytes)
+            assert str(code) in str(exc.value), (
+                f"code {code} must be rejected as malformed, not coerced to a "
+                f"message type"
+            )
+
+
+class TestIntercomHasNoBinaryEncoding:
+    """WIRE-1 §4.3 — 'INTERCOM has no binary code and MUST be sent as a
+    text-encoded frame', even on a connection that binarizes everything else.
+
+    Before hivemind-websocket-client#151 the encoder fell back to code 11 for
+    any type missing from the table, so an INTERCOM went out on the wire
+    labelled THIRDPRTY and the receiver decoded it as the wrong type.
+    """
+
+    def test_intercom_has_no_assigned_code(self):
+        from hivemind_bus_client.serialization import _INT2TYPE
+
+        assert HiveMessageType.INTERCOM not in _INT2TYPE.values(), \
+            "INTERCOM must have no binary message-type code (WIRE-1 §4.3)"
+
+    def test_binary_framing_an_intercom_raises_instead_of_mislabelling_it(self):
+        require_wire1_bus_client()
+        from hivemind_bus_client.serialization import get_bitstring
+
+        with pytest.raises(ValueError):
+            get_bitstring(hive_type=HiveMessageType.INTERCOM,
+                          payload={"ciphertext": "x", "signature": "y"})
+
+    def test_intercom_round_trips_as_a_text_frame(self):
+        payload = {"ciphertext": "Y2lwaGVy", "signature": "c2ln"}
+        msg = HiveMessage(HiveMessageType.INTERCOM, payload=payload)
+
+        decoded = HiveMessage.deserialize(msg.serialize())
+
+        assert decoded.msg_type == HiveMessageType.INTERCOM
+        assert decoded.payload == payload
+
+
+class TestProtocolFloorOnPerformedVersion:
+    """CRYPTO-1 §3.1 — the ``min_protocol_version`` floor is enforced against
+    the handshake a client actually COMPLETES, not the one it advertised it
+    could do.
+
+    The HELLO-time check only rejects a client that cannot reach the floor at
+    all (``min_version > max_version``). A v3-capable client — one with a
+    password handshake, so the server offered it Noise — can still answer with
+    a legacy v2 password envelope. If the floor were only checked at HELLO,
+    that client would silently downgrade itself past a floor of 3 and the
+    operator's crypto requirement would be a no-op (hivemind-core#165).
+    """
+
+    def _v2_envelope(self, password: str):
+        """A genuine v2 password-handshake envelope built with ``password`` —
+        one the server WOULD accept if the floor were not enforced, so this
+        test fails for the right reason if the check is removed."""
+        from poorman_handshake import PasswordHandShake
+        return PasswordHandShake(password).generate_handshake()
+
+    def test_v2_handshake_is_refused_under_a_floor_of_v3(self, minimal_topology,
+                                                         monkeypatch):
+        from hivemind_core import protocol as core_protocol
+
+        b = minimal_topology
+        m0 = b.get_master("M0")
+        s0 = b.get_satellite("S0")
+        conn = m0.hm_protocol.clients[s0.peer]
+
+        # This connection is v3-capable: it has a password handshake, which is
+        # exactly what makes the downgrade possible.
+        assert conn.pswd_handshake is not None, \
+            "precondition: the connection must be able to offer protocol v3"
+        password = conn.pswd_handshake.password
+
+        monkeypatch.setattr(core_protocol, "get_server_config",
+                            lambda: {"min_protocol_version": 3})
+
+        dropped = []
+        monkeypatch.setattr(conn, "disconnect", lambda: dropped.append(True))
+        conn.crypto_key = None
+
+        m0.hm_protocol.handle_handshake_message(
+            HiveMessage(HiveMessageType.HANDSHAKE,
+                        {"envelope": self._v2_envelope(password)}),
+            conn)
+
+        assert dropped, ("a v2 password handshake under a v3 floor MUST be "
+                         "refused, not silently completed")
+        assert conn.crypto_key is None, \
+            "the refused handshake must not have derived a session key"
+
+    def test_v2_handshake_is_accepted_under_a_floor_of_v2(self, minimal_topology,
+                                                          monkeypatch):
+        """The other half of the same clause: the floor refuses a downgrade,
+        it does not refuse everything."""
+        from hivemind_core import protocol as core_protocol
+
+        b = minimal_topology
+        m0 = b.get_master("M0")
+        s0 = b.get_satellite("S0")
+        conn = m0.hm_protocol.clients[s0.peer]
+        password = conn.pswd_handshake.password
+
+        monkeypatch.setattr(core_protocol, "get_server_config",
+                            lambda: {"min_protocol_version": 2})
+
+        dropped = []
+        monkeypatch.setattr(conn, "disconnect", lambda: dropped.append(True))
+        conn.crypto_key = None
+
+        m0.hm_protocol.handle_handshake_message(
+            HiveMessage(HiveMessageType.HANDSHAKE,
+                        {"envelope": self._v2_envelope(password)}),
+            conn)
+
+        assert not dropped, "a v2 handshake at a v2 floor must be accepted"
+        assert conn.crypto_key, "an accepted v2 handshake must derive a session key"
+
+
+class TestTofuPinIsNotMovedByALaterHello:
+    """CRYPTO-1 §5 — the first public key seen for an access key becomes the
+    trust anchor for INTERCOM origin verification. A later HELLO presenting a
+    different key MUST NOT move that pin.
+
+    Without this, anyone who reaches the listener with a stolen (or shared)
+    access key can re-pin the key to their own and have their forged INTERCOMs
+    verify — the pin is the whole of the origin authentication.
+    """
+
+    def _seizing_hello(self, pubkey: str):
+        return HiveMessage(HiveMessageType.HELLO, payload={"pubkey": pubkey})
+
+    def test_second_hello_with_a_different_key_keeps_the_original_pin(
+            self, minimal_topology):
+        from poorman_handshake.asymmetric.utils import create_RSA_key
+
+        b = minimal_topology
+        m0 = b.get_master("M0")
+        s0 = b.get_satellite("S0")
+        conn = m0.hm_protocol.clients[s0.peer]
+
+        pinned = m0.hm_protocol.trusted_pubkeys.get(conn.key)
+        assert pinned, "precondition: S0's pubkey was TOFU-pinned on its HELLO"
+
+        attacker_pem, _attacker_priv = create_RSA_key()
+        m0.hm_protocol.handle_hello_message(self._seizing_hello(attacker_pem), conn)
+
+        assert m0.hm_protocol.trusted_pubkeys[conn.key] == pinned, \
+            "a later HELLO must not move an existing TOFU pin (CRYPTO-1 §5)"
+
+    def test_intercom_signed_with_the_seizing_key_is_still_rejected(
+            self, minimal_topology):
+        """The pin must not merely survive in the dict — it must still be the
+        key INTERCOM verification uses."""
+        import pybase64
+        from poorman_handshake.asymmetric.utils import (create_RSA_key,
+                                                        encrypt_RSA, sign_RSA)
+
+        b = minimal_topology
+        m0 = b.get_master("M0")
+        s0 = b.get_satellite("S0")
+        conn = m0.hm_protocol.clients[s0.peer]
+
+        attacker_pem, attacker_priv = create_RSA_key()
+        m0.hm_protocol.handle_hello_message(self._seizing_hello(attacker_pem), conn)
+
+        inner = HiveMessage(HiveMessageType.BUS,
+                            payload=Message("recognizer_loop:utterance", {}))
+        ciphertext = encrypt_RSA(m0.identity.public_key, inner.serialize())
+        payload = {
+            "ciphertext": pybase64.b64encode(ciphertext).decode(),
+            "signature": pybase64.b64encode(
+                sign_RSA(attacker_priv, ciphertext)).decode(),
+        }
+        s0.send(HiveMessage(HiveMessageType.INTERCOM, payload=payload,
+                            target_pubkey=m0.identity.public_key))
+
+        time.sleep(0.3)
+        m0.agent_protocol.assert_not_injected("recognizer_loop:utterance")
+
+
+class TestIntercomRefusedWhenCryptoRequired:
+    """CRYPTO-1 §5 — an INTERCOM carries an end-to-end encrypted envelope with
+    an origin signature. A node that requires crypto MUST refuse an INTERCOM
+    that arrives without one — a plain dict or an already-decoded HiveMessage
+    carries no proof of origin at all (hivemind-core#169).
+
+    The permissive form (``require_crypto=False``) is what the rest of the
+    suite covers; the refusal is the security control, so it gets its own
+    positive/negative pair here.
+    """
+
+    def _plaintext_intercom(self, target_pubkey):
+        inner = HiveMessage(HiveMessageType.BUS,
+                            payload=Message("recognizer_loop:utterance",
+                                            {"utterances": ["unsigned"]}))
+        return HiveMessage(HiveMessageType.INTERCOM, payload=inner.as_dict,
+                           target_pubkey=target_pubkey)
+
+    def test_plaintext_intercom_is_dropped_when_crypto_is_required(
+            self, minimal_topology):
+        b = minimal_topology
+        m0 = b.get_master("M0")
+        s0 = b.get_satellite("S0")
+
+        assert m0.hm_protocol.require_crypto, \
+            "precondition: this node advertises crypto_required"
+
+        s0.send(self._plaintext_intercom(m0.identity.public_key))
+
+        time.sleep(0.3)
+        m0.agent_protocol.assert_not_injected("recognizer_loop:utterance")
+
+    def test_a_relay_that_consumes_the_refusal_does_not_relay_it_onward(
+            self, minimal_topology):
+        """The refusal MUST consume the frame: a dropped INTERCOM is never
+        handed to peers or escalated upstream."""
+        b = minimal_topology
+        m0 = b.get_master("M0")
+        s0 = b.get_satellite("S0")
+        conn = m0.hm_protocol.clients[s0.peer]
+
+        consumed = m0.hm_protocol.handle_intercom_message(
+            self._plaintext_intercom(m0.identity.public_key), conn)
+
+        assert consumed is True, \
+            "a refused INTERCOM must be consumed, not relayed further"
+
+    def test_plaintext_intercom_is_delivered_when_crypto_is_not_required(self):
+        """The same frame on a permissive node still delivers — proving the
+        test above fails on the refusal, not on some unrelated breakage."""
+        b = TopologyBuilder()
+        try:
+            b.add_master("M0", require_crypto=False)
+            b.add_satellite("S0", upstream=b.get_master("M0"),
+                            allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
+
+            s0.send(self._plaintext_intercom(m0.identity.public_key))
+
+            poll_until(
+                lambda: m0.agent_protocol.last_injected("recognizer_loop:utterance"),
+                timeout=3,
+                message="a permissive node must still deliver a plaintext INTERCOM")
+        finally:
+            b.stop_all()
+
+
+class TestRelayDoesNotOpenAForwardedIntercom:
+    """CRYPTO-1 §5 — an INTERCOM is addressed to a public key end-to-end. A
+    node that is merely on the path MUST NOT decrypt it, and MUST NOT rewrite
+    the envelope it passes on: the ciphertext and the origin signature the
+    target verifies are exactly the bytes the origin produced.
+
+    The relay here cannot decrypt (the envelope is sealed to M0's key), so what
+    this pins is the *behaviour*: the relay hands the envelope on untouched
+    instead of unwrapping, re-signing, or dropping it.
+    """
+
+    def test_relay_forwards_the_envelope_byte_for_byte(self, chain_topology):
+        import pybase64
+        from poorman_handshake.asymmetric.utils import encrypt_RSA, load_RSA_key, sign_RSA
+
+        b = chain_topology
+        m0 = b.get_master("M0")
+        r1 = b.get_master("R1_master")
+        s0 = b.get_satellite("S0")
+
+        inner = HiveMessage(HiveMessageType.BUS,
+                            payload=Message("recognizer_loop:utterance", {}))
+        ciphertext = encrypt_RSA(m0.identity.public_key, inner.serialize())
+        envelope = {
+            "ciphertext": pybase64.b64encode(ciphertext).decode(),
+            "signature": pybase64.b64encode(
+                sign_RSA(load_RSA_key(s0.identity.private_key), ciphertext)).decode(),
+        }
+
+        # Observe the envelope as the TOP master sees it, after the relay hop.
+        seen = []
+        original_handler = m0.hm_protocol.handle_intercom_message
+
+        def _spy(message, client):
+            seen.append(message.payload)
+            return original_handler(message, client)
+
+        m0.hm_protocol.handle_intercom_message = _spy
+
+        intercom = HiveMessage(HiveMessageType.INTERCOM, payload=envelope,
+                               target_pubkey=m0.identity.public_key)
+        s0.send(HiveMessage(HiveMessageType.ESCALATE, payload=intercom))
+
+        poll_until(lambda: seen, timeout=3,
+                   message="the relay never forwarded the INTERCOM upstream")
+        assert seen[0] == envelope, (
+            "a relay must forward an INTERCOM envelope untouched — the "
+            "ciphertext/signature reaching the target were rewritten"
+        )
+        # And the relay itself never opened it onto its own agent bus.
+        r1.agent_protocol.assert_not_injected("recognizer_loop:utterance")
+
+
+class TestKeyEstablishmentMessageGate:
+    """CRYPTO-1 §3.4.5 — key establishment brackets the session.
+
+    Before the session key exists only HELLO and HANDSHAKE may travel in the
+    clear; every other cleartext frame is rejected and the peer dropped. After
+    Split() there is no cleartext channel left at all — a frame that is not a
+    Noise transport message is rejected outright.
+    """
+
+    def test_cleartext_hello_and_handshake_are_accepted_before_the_session_key(
+            self, minimal_topology):
+        import json
+
+        b = minimal_topology
+        m0 = b.get_master("M0")
+        s0 = b.get_satellite("S0")
+        conn = m0.hm_protocol.clients[s0.peer]
+        conn.crypto_key = None  # pre-key-establishment state
+
+        for msg_type in (HiveMessageType.HELLO, HiveMessageType.HANDSHAKE):
+            frame = json.dumps({"msg_type": msg_type.value, "payload": {}})
+            assert conn.decode(frame).msg_type == msg_type, \
+                f"{msg_type} must be accepted in the clear before the session key"
+
+    def test_any_other_cleartext_frame_is_rejected_before_the_session_key(
+            self, minimal_topology):
+        import json
+        from hivemind_core.protocol import UnencryptedMessageError
+
+        b = minimal_topology
+        m0 = b.get_master("M0")
+        s0 = b.get_satellite("S0")
+        conn = m0.hm_protocol.clients[s0.peer]
+        conn.crypto_key = None
+
+        frame = json.dumps({"msg_type": HiveMessageType.BUS.value,
+                            "payload": Message("recognizer_loop:utterance",
+                                               {}).serialize()})
+        with pytest.raises(UnencryptedMessageError):
+            conn.decode(frame)
+
+    def test_a_non_noise_frame_is_rejected_after_split(self, minimal_topology):
+        import json
+        from hivemind_core.protocol import NoiseTransportFailed
+
+        b = minimal_topology
+        m0 = b.get_master("M0")
+        s0 = b.get_satellite("S0")
+        conn = m0.hm_protocol.clients[s0.peer]
+
+        class _SplitTransport:
+            """Stands in for the post-Split() CipherState pair. If the guard
+            is removed, decode() reaches here and this fails loudly rather
+            than quietly accepting the cleartext."""
+
+            def decrypt_frame(self, payload):
+                raise AssertionError(
+                    "a text frame must never reach the Noise transport")
+
+        conn.noise_transport = _SplitTransport()
+
+        frame = json.dumps({"msg_type": HiveMessageType.HELLO.value,
+                            "payload": {}})
+        with pytest.raises(NoiseTransportFailed):
+            conn.decode(frame)
+
+
+class TestBuiltinGatesAreNotRemovable:
+    """POLICY-1 §4 — the message-type gate is the canonical admission control:
+    it runs FIRST and it cannot be removed or reordered, whatever chain the
+    caller supplies.
+
+    ``PolicyChain`` is a plain dataclass, so an embedder can hand
+    ``HiveMindListenerProtocol`` a chain of its own. Before hivemind-core#171
+    only a chain built from config was normalized, so a caller-supplied chain
+    could omit ``MessageTypeACLPolicy`` entirely (whitelist never enforced) or
+    place it after a permissive policy that short-circuits with an allow.
+    """
+
+    def _normalize(self, hm_protocol, *policies, optional=None):
+        from hivemind_core.policy import PolicyChain
+        flags = list(optional) if optional else [False] * len(policies)
+        return hm_protocol._with_builtin_policies(
+            PolicyChain(policies=list(policies), _optional=flags))
+
+    def test_a_caller_supplied_chain_is_normalized_by_the_constructor(self):
+        """The gate must survive the path an embedder actually uses: handing
+        ``HiveMindListenerProtocol`` a ready-made chain. Normalizing only the
+        chain built from config leaves this door open."""
+        from hivemind_core.policy import (DefaultSessionPolicy,
+                                          MessageTypeACLPolicy, PolicyChain)
+        from hivemind_core.protocol import HiveMindListenerProtocol
+        from hivemind_plugin_manager.policy import PolicyPlugin
+        from hivescope.database import InMemoryClientDatabase
+        from hivescope.plugins.agent import TestAgentProtocol
+        from hivescope.utils import make_identity
+
+        class _AllowAll(PolicyPlugin):
+            def review(self, message, client):
+                from hivemind_plugin_manager import Verdict
+                return Verdict.allow()
+
+        hm = HiveMindListenerProtocol(
+            identity=make_identity("M-embedded"),
+            db=InMemoryClientDatabase(),
+            agent_protocol=TestAgentProtocol(),
+            peer="M-embedded:0.0.0.0",
+            policy_chain=PolicyChain(policies=[_AllowAll()], _optional=[False]),
+        )
+
+        assert [type(p) for p in hm.policy_chain.policies] == [
+            MessageTypeACLPolicy, DefaultSessionPolicy, _AllowAll], \
+            "the builtin gates must be prepended to a caller-supplied chain"
+
+    def test_the_gate_cannot_be_reordered_behind_another_policy(
+            self, minimal_topology):
+        from hivemind_core.policy import (DefaultSessionPolicy,
+                                          MessageTypeACLPolicy)
+        from hivemind_plugin_manager.policy import PolicyPlugin
+
+        class _RunsFirst(PolicyPlugin):
+            def review(self, message, client):
+                from hivemind_plugin_manager import Verdict
+                return Verdict.allow()
+
+        hm = minimal_topology.get_master("M0").hm_protocol
+        # The caller deliberately puts its own policy before the gate and
+        # lists the gate itself, hoping to keep its position.
+        chain = self._normalize(hm, _RunsFirst(), MessageTypeACLPolicy(hm_protocol=hm))
+
+        assert [type(p) for p in chain.policies] == [
+            MessageTypeACLPolicy, DefaultSessionPolicy, _RunsFirst], \
+            "the builtin gates must run first, and a listed copy must not be duplicated"
+
+    def test_the_builtin_gates_are_never_optional(self, minimal_topology):
+        """A gate marked optional would swallow its own exceptions and let the
+        message through — the gates are mandatory, so an error fails closed."""
+        from hivemind_plugin_manager.policy import PolicyPlugin
+
+        class _Optional(PolicyPlugin):
+            def review(self, message, client):
+                from hivemind_plugin_manager import Verdict
+                return Verdict.allow()
+
+        hm = minimal_topology.get_master("M0").hm_protocol
+        chain = self._normalize(hm, _Optional(), optional=[True])
+
+        assert chain._optional == [False, False, True], \
+            "the builtin gates must stay mandatory; the caller's flag is kept"
+
+
+class TestEmptyWhitelistDeniesBinary:
+    """POLICY-1 §4 — ``allowed_types`` is a whitelist and the empty whitelist
+    grants nothing. A BINARY payload crosses the same gate: without this a
+    client that may not emit a single message type could still push RAW_AUDIO
+    into the STT pipeline (hivemind-core#171).
+    """
+
+    def test_binary_payload_is_denied_for_an_empty_whitelist(self):
+        from hivemind_bus_client.serialization import HiveMindBinaryPayloadType
+
+        b = TopologyBuilder()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"), allowed_types=[])
+            b.start_all()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
+
+            s0.send(HiveMessage(
+                HiveMessageType.BINARY, payload=b"\x00\x01" * 512,
+                bin_type=HiveMindBinaryPayloadType.RAW_AUDIO,
+                metadata={"sample_rate": 16000, "sample_width": 2}))
+
+            m0.binary_protocol.assert_not_called("microphone_input")
+        finally:
+            b.stop_all()
+
+    def test_binary_payload_is_admitted_once_the_whitelist_is_non_empty(self):
+        """The counterpart: the deny above is the empty whitelist, not a
+        blanket refusal of binary."""
+        from hivemind_bus_client.serialization import HiveMindBinaryPayloadType
+
+        b = TopologyBuilder()
+        try:
+            b.add_master("M0")
+            b.add_satellite("S0", upstream=b.get_master("M0"),
+                            allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
+
+            s0.send(HiveMessage(
+                HiveMessageType.BINARY, payload=b"\x00\x01" * 512,
+                bin_type=HiveMindBinaryPayloadType.RAW_AUDIO,
+                metadata={"sample_rate": 16000, "sample_width": 2}))
+
+            m0.binary_protocol.assert_called("microphone_input")
+        finally:
+            b.stop_all()
+
+
+class TestDenyAllFallback:
+    """POLICY-1 §5 — fail-closed at startup too: when the configured chain
+    cannot be built, the node installs ``DenyAllPolicy`` rather than an empty
+    (allow-everything) chain."""
+
+    def test_unbuildable_chain_installs_deny_all(self, monkeypatch):
+        from hivemind_core.policy import DenyAllPolicy, PolicyChain
+        from hivemind_core.protocol import HiveMindListenerProtocol
+        from hivemind_plugin_manager import DenyCodes
+        from hivescope.database import InMemoryClientDatabase
+        from hivescope.plugins.agent import TestAgentProtocol
+        from hivescope.utils import make_identity
+
+        def _boom(cls, config, hm_protocol=None):
+            raise RuntimeError("unloadable policy plugin")
+
+        monkeypatch.setattr(PolicyChain, "from_config", classmethod(_boom))
+
+        hm = HiveMindListenerProtocol(
+            identity=make_identity("M-denyall"),
+            db=InMemoryClientDatabase(),
+            agent_protocol=TestAgentProtocol(),
+            peer="M-denyall:0.0.0.0",
+        )
+
+        fallbacks = [p for p in hm.policy_chain.policies
+                     if isinstance(p, DenyAllPolicy)]
+        assert fallbacks, (
+            "a chain that failed to build must be replaced by DenyAllPolicy, "
+            "never by an empty allow-everything chain"
+        )
+        verdict = fallbacks[0].review(Message("recognizer_loop:utterance", {}),
+                                      client=None)
+        assert verdict.denied
+        assert verdict.code == DenyCodes.POLICY_CHAIN_UNAVAILABLE
+
+
+def _response_msg_types(responses):
+    """The inner bus msg_types of a list of QUERY/CASCADE response frames."""
+    return [r.payload.payload.msg_type for r in responses]
+
+
+def _stub_agent_answer(node, chunks):
+    """Make ``node``'s agent answer a query with ``chunks``.
+
+    An empty ``chunks`` list is a DECLINED query: the agent yields the
+    end-of-query sentinel immediately without producing an answer, which is
+    the contract the node uses to decide to escalate instead.
+    """
+
+    def _nlq(utterance, lang, *args, **kwargs):
+        for chunk in chunks:
+            yield chunk
+        yield None
+
+    node.agent_protocol.natural_language_query = _nlq
+
+
+class TestQueryStreamEnd:
+    """AGENT-1 §4.2 / NODE-1 §5 — a streamed QUERY answer is terminated by
+    exactly one ``hive.query.complete`` control message, sent AFTER the last
+    answer chunk. A query the agent DECLINED produced no stream, so it MUST
+    NOT be terminated by one — the originator uses ``hive.query.complete`` to
+    know the answer is whole, and a spurious one would end a query that is
+    still being escalated upstream.
+    """
+
+    QUERY_COMPLETE = "hive.query.complete"
+
+    def _ask(self, satellite, utterance="what is 2+2?"):
+        responses = []
+        satellite.shim.emitter.on(HiveMessageType.QUERY, responses.append)
+        satellite.send(HiveMessage(
+            HiveMessageType.QUERY,
+            payload=HiveMessage(HiveMessageType.BUS,
+                                payload=Message("recognizer_loop:utterance",
+                                                {"utterances": [utterance]})),
+            metadata={"query_id": f"q-{uuid.uuid4()}",
+                      "originator_peer": satellite.peer,
+                      "is_response": False}))
+        return responses
+
+    def test_complete_is_sent_after_the_last_chunk(self, minimal_topology):
+        b = minimal_topology
+        _stub_agent_answer(b.get_master("M0"), ["four", "or maybe five"])
+
+        responses = self._ask(b.get_satellite("S0"))
+
+        assert _response_msg_types(responses) == [
+            "speak", "speak", self.QUERY_COMPLETE], \
+            "the stream must be terminated by hive.query.complete, after every chunk"
+
+    def test_complete_is_sent_exactly_once(self, minimal_topology):
+        b = minimal_topology
+        _stub_agent_answer(b.get_master("M0"), ["four"])
+
+        responses = self._ask(b.get_satellite("S0"))
+
+        assert _response_msg_types(responses).count(self.QUERY_COMPLETE) == 1
+
+    def test_complete_is_not_sent_for_a_declined_query(self, minimal_topology):
+        b = minimal_topology
+        _stub_agent_answer(b.get_master("M0"), [])  # agent declines
+
+        responses = self._ask(b.get_satellite("S0"))
+
+        types = _response_msg_types(responses)
+        assert self.QUERY_COMPLETE not in types, (
+            f"a declined query produced no answer stream, so it must not be "
+            f"terminated by {self.QUERY_COMPLETE}; got {types}"
+        )
+        assert "hive.query.timeout" in types, \
+            "a declined query at the top-level master must report no_answer"
+
+
+class TestLoopedMessagesAreStillDeliveredLocally:
+    """MSG-1 §5 — loop suppression gates RE-FORWARDING, not local handling:
+    'a node MUST NOT forward a message whose route already contains a hop
+    naming it'. The node it names is a legitimate recipient; it just must not
+    put the message back on the wire.
+
+    PROPAGATE and PING already have coverage above. ESCALATE and CASCADE are
+    the branches a 'just drop looped messages' simplification would break,
+    because for both of them the local step is the whole point: an ESCALATE
+    targeting this node's site is delivered to its agent, and a CASCADE is
+    answered by every node it reaches.
+    """
+
+    def _route_naming(self, node):
+        """A route hop naming ``node`` by the stable identity loop suppression
+        keys on (``_node_id`` == the node's public key).
+
+        ``targets`` must be non-empty: ``HiveMessage.route`` filters out hops
+        that carry no targets, so a hop without them is invisible to the
+        suppression check.
+        """
+        return [{"source": node.identity.public_key,
+                 "targets": [node.identity.public_key]}]
+
+    def test_looped_escalate_is_delivered_locally_but_not_forwarded_upstream(
+            self, chain_topology):
+        b = chain_topology
+        m0 = b.get_master("M0")
+        r1 = b.get_master("R1_master")
+        s0 = b.get_satellite("S0")
+
+        m0_escalated = []
+        m0.hm_protocol.escalate_callback = m0_escalated.append
+
+        inner = HiveMessage(HiveMessageType.BUS,
+                            payload=Message("recognizer_loop:utterance",
+                                            {"utterances": ["looped escalate"]}))
+        s0.send(HiveMessage(HiveMessageType.ESCALATE, payload=inner,
+                            target_site_id=r1.identity.site_id,
+                            route=self._route_naming(r1)))
+
+        # local delivery: the ESCALATE targets R1's site, so R1's agent gets it
+        msg = r1.agent_protocol.last_injected("recognizer_loop:utterance")
+        assert msg is not None, \
+            "a looped ESCALATE must still be delivered to the local agent"
+        assert "looped escalate" in msg.data.get("utterances", [])
+
+        # onward forward suppressed: it must not climb to the top master
+        assert m0_escalated == [], \
+            "a looped ESCALATE must not be re-forwarded upstream (MSG-1 §5)"
+
+    def test_looped_cascade_is_answered_locally_but_not_fanned_out(self):
+        b = TopologyBuilder()
+        try:
+            b.add_master("M0")
+            r1 = b.add_relay("R1", upstream=b.get_master("M0")).listener
+            b.add_satellite("S0", upstream=r1,
+                            allowed_types=["recognizer_loop:utterance"])
+            b.add_satellite("S1", upstream=r1,
+                            allowed_types=["recognizer_loop:utterance"])
+            b.start_all()
+            m0 = b.get_master("M0")
+            s0 = b.get_satellite("S0")
+            s1 = b.get_satellite("S1")
+            _stub_agent_answer(r1, ["local cascade answer"])
+
+            s0_responses = []
+            s0.shim.emitter.on(HiveMessageType.CASCADE, s0_responses.append)
+            s1_received = []
+            s1.shim.emitter.on(HiveMessageType.CASCADE, s1_received.append)
+            m0_received = []
+            original_cascade = m0.hm_protocol.handle_cascade_message
+
+            def _spy(message, client):
+                m0_received.append(message)
+                return original_cascade(message, client)
+
+            m0.hm_protocol.handle_cascade_message = _spy
+
+            s0.send(HiveMessage(
+                HiveMessageType.CASCADE,
+                payload=HiveMessage(HiveMessageType.BUS,
+                                    payload=Message("recognizer_loop:utterance",
+                                                    {"utterances": ["cascade?"]})),
+                metadata={"query_id": f"c-{uuid.uuid4()}",
+                          "originator_peer": s0.peer, "is_response": False},
+                route=self._route_naming(r1)))
+
+            # local delivery: R1 answered the cascade back to the originator
+            assert "speak" in _response_msg_types(s0_responses), (
+                "a looped CASCADE must still be answered locally; got "
+                f"{_response_msg_types(s0_responses)}")
+
+            # onward fan-out suppressed, both sideways and upstream
+            assert s1_received == [], \
+                "a looped CASCADE must not be fanned out to sibling peers (MSG-1 §5)"
+            assert m0_received == [], \
+                "a looped CASCADE must not be forwarded upstream (MSG-1 §5)"
+        finally:
+            b.stop_all()
+
+
+#: WIRE-1 §4.2, transcribed from the spec table. Kept as a literal (not derived
+#: from the implementation) so this file is an independent copy of the wire
+#: contract: deriving it from ``_INT2TYPE`` would make the test agree with
+#: whatever the code does.
+#:
+#: Code 11 was THIRDPRTY, which MSG-1 §3 removed. It stays **reserved** and
+#: absent here — a decoder must reject it as unassigned, and reusing it for a
+#: new type would break every deployed peer that still speaks it.
+WIRE1_MESSAGE_TYPE_CODES = {
+    0: "HANDSHAKE",
+    1: "BUS",
+    2: "SHARED_BUS",
+    3: "BROADCAST",
+    4: "PROPAGATE",
+    5: "ESCALATE",
+    6: "HELLO",
+    7: "QUERY",
+    8: "CASCADE",
+    9: "PING",
+    10: "RENDEZVOUS",
+    12: "BINARY",
+}
+
+
+#: The bus-client release that made the encoder refuse an unencodable type
+#: (hivemind-websocket-client#151) and the decoder reject an unassigned code
+#: (#145). ``pyproject.toml`` floors the dependency here; the check below turns
+#: an environment below that floor into a failure that says so, instead of a
+#: bare "DID NOT RAISE" that looks like a protocol regression.
+WIRE1_BUS_CLIENT_FLOOR = (0, 10, 6)
