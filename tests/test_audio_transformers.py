@@ -75,56 +75,56 @@ class TestAudioBinaryProtocolTransformers(unittest.TestCase):
 
 
 class TestUtteranceTransformersService(unittest.TestCase):
-    """Tests for UtteranceTransformersService with mocked plugin loading."""
+    """Tests for UtteranceTransformersService.
+
+    ``enabled_plugins=[]`` already loads nothing, so there is no plugin
+    lookup left to mock. These used to patch
+    ``hivemind_audio_binary_protocol.transformers.find_utterance_transformer_plugins``,
+    which no longer exists: #48 moved the service onto the canonical
+    ovos-plugin-manager runners, and the plugin lookup went with it.
+    """
 
     def test_transform_no_plugins_returns_unchanged(self):
         """With no loaded plugins, transform() returns original utterances."""
-        with patch("hivemind_audio_binary_protocol.transformers.find_utterance_transformer_plugins",
-                   return_value={}):
-            from hivemind_audio_binary_protocol.transformers import UtteranceTransformersService
-            bus = MagicMock()
-            svc = UtteranceTransformersService(bus, enabled_plugins=[])
-            utts, ctx = svc.transform(["hello"], {})
-            self.assertEqual(utts, ["hello"])
+        from hivemind_audio_binary_protocol.transformers import UtteranceTransformersService
+        bus = MagicMock()
+        svc = UtteranceTransformersService(bus, enabled_plugins=[])
+        utts, ctx = svc.transform(["hello"], {})
+        self.assertEqual(utts, ["hello"])
 
     def test_shutdown_called_on_plugins(self):
         """shutdown() should call shutdown on each loaded plugin."""
-        with patch("hivemind_audio_binary_protocol.transformers.find_utterance_transformer_plugins",
-                   return_value={}):
-            from hivemind_audio_binary_protocol.transformers import UtteranceTransformersService
-            bus = MagicMock()
-            svc = UtteranceTransformersService(bus, enabled_plugins=[])
-            # Inject a mock plugin
-            mock_plugin = MagicMock()
-            svc.loaded_plugins["test-plugin"] = mock_plugin
-            svc.shutdown()
-            mock_plugin.shutdown.assert_called_once()
+        from hivemind_audio_binary_protocol.transformers import UtteranceTransformersService
+        bus = MagicMock()
+        svc = UtteranceTransformersService(bus, enabled_plugins=[])
+        # Inject a mock plugin
+        mock_plugin = MagicMock()
+        svc.loaded_plugins["test-plugin"] = mock_plugin
+        svc.shutdown()
+        mock_plugin.shutdown.assert_called_once()
 
 
 class TestDialogTransformersService(unittest.TestCase):
-    """Tests for DialogTransformersService with mocked plugin loading."""
+    """Tests for DialogTransformersService. See the note above on why the
+    plugin-lookup patch is gone."""
 
     def test_transform_no_plugins_returns_unchanged(self):
         """With no loaded plugins, transform() returns original dialog."""
-        with patch("hivemind_audio_binary_protocol.transformers.find_dialog_transformer_plugins",
-                   return_value={}):
-            from hivemind_audio_binary_protocol.transformers import DialogTransformersService
-            bus = MagicMock()
-            svc = DialogTransformersService(bus, enabled_plugins=[])
-            text, ctx = svc.transform("sunny day", {})
-            self.assertEqual(text, "sunny day")
+        from hivemind_audio_binary_protocol.transformers import DialogTransformersService
+        bus = MagicMock()
+        svc = DialogTransformersService(bus, enabled_plugins=[])
+        text, ctx = svc.transform("sunny day", {})
+        self.assertEqual(text, "sunny day")
 
     def test_shutdown_called_on_plugins(self):
         """shutdown() should call shutdown on each loaded plugin."""
-        with patch("hivemind_audio_binary_protocol.transformers.find_dialog_transformer_plugins",
-                   return_value={}):
-            from hivemind_audio_binary_protocol.transformers import DialogTransformersService
-            bus = MagicMock()
-            svc = DialogTransformersService(bus, enabled_plugins=[])
-            mock_plugin = MagicMock()
-            svc.loaded_plugins["test-plugin"] = mock_plugin
-            svc.shutdown()
-            mock_plugin.shutdown.assert_called_once()
+        from hivemind_audio_binary_protocol.transformers import DialogTransformersService
+        bus = MagicMock()
+        svc = DialogTransformersService(bus, enabled_plugins=[])
+        mock_plugin = MagicMock()
+        svc.loaded_plugins["test-plugin"] = mock_plugin
+        svc.shutdown()
+        mock_plugin.shutdown.assert_called_once()
 
 
 if __name__ == "__main__":

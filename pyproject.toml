@@ -30,7 +30,11 @@ dependencies = [
     # Noise handshake, the password-strength backstop and derive-psk provisioning
     # all require this stack. Prerelease floors so pip resolves them without --pre.
     "hivemind-core>=4.11.4a2",
-    "hivemind_bus_client>=0.10.1a1",
+    # 1.0.6a1 is the first release that bounds the QUERY originator's wait
+    # (NODE-1 §5.5) and refuses an over-long binary metadata block
+    # (WIRE-1 §4.1, hivemind-websocket-client#177). test_conformance_wave5
+    # asserts both outright, so an older release fails rather than skips.
+    "hivemind_bus_client>=1.0.6a1",
     "poorman-handshake>=2.0.0a1",
 ]
 
@@ -46,7 +50,11 @@ dev = [
     "websocket-client>=1.6",
     # cross-repo packages whose code the harness imports directly in tests
     # (e.g. test_audio_transformers imports hivemind_audio_binary_protocol).
-    "hivemind-audio-binary-protocol",
+    # 2.1.8a2 is the first release that refuses a RAW_AUDIO stream in a format
+    # it cannot process (AUDIO-1 §2, hivemind-audio-binary-protocol#54), which
+    # test_conformance_wave5's TestRawAudioFormatRejection asserts outright —
+    # an older release fails it rather than skipping.
+    "hivemind-audio-binary-protocol>=2.1.8a2",
     # DISCOVERY-1 conformance: tests/test_spec_musts.py asserts the real mDNS
     # announcement record and the LocalPresence defaults. 0.0.5a1 is the first
     # release where LocalPresence defaults upnp=False (HiveMind-presence#17),
@@ -58,6 +66,11 @@ dev = [
     # (it is an optional LGPL transport for end users), so depending on the
     # package alone does not pull it in.
     "zeroconf",
+    # test_conformance_wave5 pins the TRANSPORT-1 §4 retention bound, which
+    # lives in the HTTP binding.
+    # 0.0.7a1 is the first release carrying the TRANSPORT-1 §4 retention bound
+    # (hivemind-http-protocol#24) that TestHttpRetentionBound asserts.
+    "hivemind-http-protocol>=0.0.7a1",
 ]
 # Live OVOS skill execution through HiveMind (MiniCroft-backed agent). Mirrors
 # hivescope's own ``ovos`` extra, plus the intent-pipeline plugins MiniCroft
