@@ -805,3 +805,460 @@ class TestSiteIdSurvivesRelayHop:
             relay.listener.agent_protocol.assert_not_injected(TARGETED)
         finally:
             b.stop_all()
+
+
+def _noise_pair(tmp_path, client_prologue, server_prologue):
+    """An initiator/responder ``NoiseHandShake`` pair for one XXpsk2 exchange."""
+    from hivemind_bus_client.noise import (start_noise_handshake,
+                                           NOISE_PATTERN_XX, NOISE_SUITE_CHACHA)
+    common = dict(pattern=NOISE_PATTERN_XX, suite=NOISE_SUITE_CHACHA,
+                  password="a shared site password", node_id="master:0.0.0.0")
+    node = start_noise_handshake(initiator=True, prologue=client_prologue,
+                                 key_path=str(tmp_path / "node.key"), **common)
+    server = start_noise_handshake(initiator=False, prologue=server_prologue,
+                                   key_path=str(tmp_path / "server.key"), **common)
+    return node, server
+
+
+def _run_xxpsk2(node, server):
+    """Drive the three XXpsk2 messages; raises on any authentication failure."""
+    server.read_message(node.write_message(b""))
+    node.read_message(server.write_message(b""))
+    server.read_message(node.write_message(b""))
+
+
+class TestManualDiscovery:
+    """DISCOVERY-1 §2 / §2.5 — a satellite MUST support at least one discovery
+    method; manual configuration is one of them, and is RECOMMENDED for fixed
+    deployments. ``hivemind-bus-client`` implements it as
+    ``NodeIdentity.default_master`` / ``default_port``, which
+    ``HiveMessageBusClient.init_identity`` resolves the connection target from
+    whenever no host is passed explicitly.
+    """
+
+    @staticmethod
+    def _client_with_identity(**identity_values):
+        """A bus client that has run identity resolution but never connected.
+
+        ``__init__`` opens sockets and starts threads, so the object is built
+        without it and only ``init_identity`` — the code under test — is run.
+        ``IDENTITY_FILE`` is swapped for a plain dict so the developer's real
+        ``~/.config/hivemind/_identity.json`` is neither read nor written.
+        """
+        from hivemind_bus_client.client import HiveMessageBusClient
+        from hivemind_bus_client.identity import NodeIdentity
+
+        identity = NodeIdentity()
+        identity.IDENTITY_FILE = dict(identity_values)
+        client = HiveMessageBusClient.__new__(HiveMessageBusClient)
+        client.identity = identity
+        client._password = None
+        client._access_key = None
+        client._name = "test-satellite"
+        client._host = None
+        client._port = None
+        return client
+
+    def test_manually_configured_address_is_used_as_the_connection_target(self):
+        """DISCOVERY-1 §2.5 — a satellite MAY be configured with a server's
+        address directly, bypassing automatic discovery entirely."""
+        client = self._client_with_identity(
+            access_key="a-key", password="a-password",
+            default_master="ws://192.0.2.10", default_port=5678)
+
+        client.init_identity()
+
+        assert client._host == "ws://192.0.2.10", \
+            "the manually configured master must become the connection host"
+        assert client._port == 5678, \
+            "the manually configured port must become the connection port"
+
+    def test_a_satellite_with_no_discovery_result_refuses_to_connect(self):
+        """DISCOVERY-1 §2 — a satellite needs at least one discovery method.
+        With no manual configuration and no discovered address there is nothing
+        to connect to, and the client must say so rather than invent a target."""
+        client = self._client_with_identity(
+            access_key="a-key", password="a-password")
+
+        with pytest.raises(RuntimeError, match="host not set"):
+            client.init_identity()
+
+
+class TestAdvertisementDefaults:
+    """DISCOVERY-1 §2.1 / §2.2 — mDNS is the default advertisement method (a
+    server enables it by default); SSDP/UPnP is optional and a server keeps it
+    off by default. The server is ``hivemind-core``, and its shipped defaults
+    are ``hivemind_core.config._DEFAULT["presence"]`` — asserted directly so a
+    developer's own ``~/.config`` overrides cannot mask a regression.
+    """
+
+    @staticmethod
+    def _presence_defaults():
+        from hivemind_core.config import _DEFAULT
+        return _DEFAULT["presence"]
+
+    def test_mdns_advertisement_is_enabled_by_default(self):
+        """DISCOVERY-1 §2.1 — mDNS is the default discovery method."""
+        presence = self._presence_defaults()
+        assert presence["enabled"] is True, \
+            "a server must advertise itself by default"
+        assert presence["zeroconf"] is True, \
+            "mDNS is the default discovery method and must ship enabled"
+
+    def test_ssdp_advertisement_is_disabled_by_default(self):
+        """DISCOVERY-1 §2.2 — SSDP/UPnP is optional and off by default."""
+        assert self._presence_defaults()["upnp"] is False, \
+            "SSDP/UPnP is optional and a server must keep it off by default"
+
+    def test_presence_library_also_defaults_ssdp_off(self):
+        """DISCOVERY-1 §2.2 — the default must hold at the advertiser itself,
+        not only at the one caller that overrides it."""
+        import inspect
+        from hivemind_presence import LocalPresence
+
+        upnp_default = inspect.signature(LocalPresence.__init__).parameters["upnp"].default
+        assert upnp_default is False, \
+            "LocalPresence must keep SSDP off unless a caller asks for it"
+
+
+class TestAnnouncementContents:
+    """DISCOVERY-1 §3 — an announcement MUST carry enough to reach the server
+    (at minimum a network address) and MAY carry a human-meaningful identifier.
+    It MUST NOT be relied upon to carry secrets, and a satellite MUST NOT treat
+    any field of it as proof of the server's identity.
+
+    Asserted against the real ``ServiceInfo`` that ``hivemind-presence`` hands
+    to zeroconf — the exact record that goes on the wire — built for a loopback
+    address so no multicast traffic is needed.
+    """
+
+    HOST = "127.0.0.1"
+    PORT = 5678
+    NAME = "Kitchen Hive"
+
+    @classmethod
+    def _announcement(cls):
+        from hivemind_presence.zero import ZeroConfAnnounce
+        return ZeroConfAnnounce(host=cls.HOST, port=cls.PORT, name=cls.NAME).info
+
+    def test_announcement_carries_a_reachable_address(self):
+        """DISCOVERY-1 §3 — at minimum a network address."""
+        import ipaddress
+
+        info = self._announcement()
+        assert ipaddress.ip_address(self.HOST).packed in info.addresses, \
+            "the announcement must carry the server's address"
+        assert info.port == self.PORT, \
+            "the announcement must carry the port the server listens on"
+        assert info.properties[b"host"].decode() == self.HOST
+        assert int(info.properties[b"port"]) == self.PORT
+
+    def test_announcement_carries_a_human_meaningful_name(self):
+        """DISCOVERY-1 §3 — a human-meaningful server identifier, so a user can
+        choose among several."""
+        info = self._announcement()
+        assert info.properties[b"name"].decode() == self.NAME, \
+            "the announcement must carry the operator-chosen node name"
+
+    def test_announcement_carries_no_credential(self):
+        """DISCOVERY-1 §3 — an announcement MUST NOT be relied upon to carry
+        secrets; it is broadcast in the clear. Nothing usable as a credential
+        may appear in it."""
+        info = self._announcement()
+        advertised = {k.decode() for k in info.properties}
+        assert advertised == {"host", "port", "ssl", "name", "type"}, \
+            f"unexpected field in a cleartext announcement: {advertised}"
+
+    def test_a_discovered_node_still_needs_an_out_of_band_access_key(self):
+        """DISCOVERY-1 §3 / §4 — no announcement field is proof of identity: a
+        node built from a discovery result carries no credential, so connecting
+        is impossible without a key supplied out of band."""
+        import inspect
+        from hivemind_presence.devices import AbstractDevice, HiveMindNode
+
+        node = HiveMindNode(AbstractDevice(
+            host=self.HOST, port=self.PORT,
+            device_type="HiveMind-websocket", name=self.NAME))
+
+        assert node.address == f"{self.HOST}:{self.PORT}", \
+            "a discovery result must yield a reachable address"
+        assert set(node.device.data) == {"host", "port", "ssl", "type"}, \
+            "a discovery result must carry no credential"
+        key = inspect.signature(HiveMindNode.connect).parameters["key"]
+        assert key.default is inspect.Parameter.empty, \
+            "connecting to a discovered node must require an access key that " \
+            "discovery did not supply"
+
+
+class TestDiscoveryIsNotAuthentication:
+    """DISCOVERY-1 §4 — a satellite MUST authenticate every discovered server
+    before it exchanges any application message with it. Knowing where a server
+    is says nothing about whether it is the intended one, so an address alone
+    must not admit a node to the hive."""
+
+    def test_knowing_the_address_without_a_registered_key_is_refused(self):
+        from hivescope.node import SatelliteNode
+
+        b = TopologyBuilder()
+        try:
+            b.add_master("M0")
+            master = b.get_master("M0")
+
+            # A satellite that has "discovered" the master: it knows exactly
+            # where it is and is wired straight to it. What it does not have is
+            # a registered access key — discovery never supplies one.
+            discovered = SatelliteNode.create("Discovered")
+            discovered._master = master
+
+            with pytest.raises((ValueError, RuntimeError)):
+                master.network_protocol.connect_satellite(satellite=discovered)
+
+            assert discovered.peer not in master.hm_protocol.clients, \
+                "an unauthenticated node must not be admitted to the hive"
+            master.agent_protocol.assert_not_injected("recognizer_loop:utterance")
+        finally:
+            b.stop_all()
+
+
+class TestNoisePrologueBinding:
+    """CRYPTO-1 §3.4.3 — both peers MUST initialize the handshake with a
+    prologue built from the server's cleartext HELLO payload, its cleartext
+    parameter HANDSHAKE payload and the selected Noise protocol name. Any
+    tampering with the negotiation changes the prologue on exactly one side and
+    the handshake MUST abort with an authentication failure.
+
+    This is the whole of the downgrade-protection story: without it a
+    man-in-the-middle edits ``max_protocol_version`` in the cleartext step-2
+    payload and both peers complete a handshake over the forged parameters.
+    """
+
+    HELLO = {"node_id": "master:0.0.0.0", "pubkey": "not-a-real-key"}
+    PARAMS = {"handshake": True, "min_protocol_version": 3,
+              "max_protocol_version": 3, "crypto_required": True,
+              "noise": {"patterns": ["XXpsk2"],
+                        "suites": ["25519_ChaChaPoly_SHA256"]}}
+    PROTOCOL_NAME = "Noise_XXpsk2_25519_ChaChaPoly_SHA256"
+
+    def _prologue(self, params):
+        from hivemind_bus_client.noise import build_prologue
+        return build_prologue(self.HELLO, params, self.PROTOCOL_NAME)
+
+    def test_matching_prologue_completes_the_handshake(self, tmp_path):
+        """CRYPTO-1 §3.4.3 — the untampered case must succeed, so the abort
+        below is proof of tamper detection and not of a broken handshake."""
+        agreed = self._prologue(self.PARAMS)
+        node, server = _noise_pair(tmp_path, agreed, agreed)
+
+        _run_xxpsk2(node, server)
+
+        assert node.handshake_finished and server.handshake_finished, \
+            "an untampered XXpsk2 handshake must complete"
+
+    def test_downgraded_parameters_abort_the_handshake(self, tmp_path):
+        """CRYPTO-1 §3.4.3 — an attacker lowering ``max_protocol_version`` in
+        the cleartext parameter HANDSHAKE changes the node's prologue only; the
+        handshake MUST abort."""
+        downgraded = dict(self.PARAMS, max_protocol_version=2)
+        node, server = _noise_pair(tmp_path,
+                                   client_prologue=self._prologue(downgraded),
+                                   server_prologue=self._prologue(self.PARAMS))
+
+        with pytest.raises(Exception):
+            _run_xxpsk2(node, server)
+
+        assert not node.handshake_finished, \
+            "a tampered negotiation must never yield a node transport state"
+        assert not server.handshake_finished, \
+            "a tampered negotiation must never yield a server transport state"
+
+    def test_stripped_cipher_suite_aborts_the_handshake(self, tmp_path):
+        """CRYPTO-1 §3.4.3 — stripping a suite from the server's advertised
+        list is tampering with the negotiation and MUST abort."""
+        stripped = dict(self.PARAMS,
+                        noise={"patterns": ["XXpsk2"], "suites": []})
+        node, server = _noise_pair(tmp_path,
+                                   client_prologue=self._prologue(stripped),
+                                   server_prologue=self._prologue(self.PARAMS))
+
+        with pytest.raises(Exception):
+            _run_xxpsk2(node, server)
+
+        assert not server.handshake_finished
+
+
+class TestNoiseTransportReplayResistance:
+    """CRYPTO-1 §3.4.5 — a Noise transport message MUST be rejected when it
+    fails to decrypt at the current receive counter, and MUST NOT be retried
+    under another nonce. The strictly sequential counters ARE the replay
+    resistance that protocol version 3 adds over the §4 session layer.
+    """
+
+    def _transports(self, tmp_path):
+        from hivemind_bus_client.noise import NoiseTransport
+        agreed = TestNoisePrologueBinding()._prologue(
+            TestNoisePrologueBinding.PARAMS)
+        node, server = _noise_pair(tmp_path, agreed, agreed)
+        _run_xxpsk2(node, server)
+        return NoiseTransport(node), NoiseTransport(server)
+
+    def test_replayed_frame_is_rejected(self, tmp_path):
+        """CRYPTO-1 §3.4.5 — a captured genuine frame re-injected by an active
+        attacker must not authenticate a second time."""
+        from hivemind_bus_client.noise import NoiseTransportFailed
+
+        node, server = self._transports(tmp_path)
+        frame = node.encrypt_frame("first message")
+
+        assert server.decrypt_frame(frame) == "first message", \
+            "the genuine frame must decrypt once"
+        with pytest.raises(NoiseTransportFailed):
+            server.decrypt_frame(frame)
+
+    def test_out_of_order_frame_is_rejected_and_not_retried(self, tmp_path):
+        """CRYPTO-1 §3.4.5 — a frame that fails at the current counter is
+        rejected there; the receiver must not walk the nonce forward looking
+        for a counter under which it would verify."""
+        from hivemind_bus_client.noise import NoiseTransportFailed
+
+        node, server = self._transports(tmp_path)
+        first = node.encrypt_frame("first message")
+        second = node.encrypt_frame("second message")
+
+        # The receiver is at counter 0; ``second`` was sealed under counter 1.
+        with pytest.raises(NoiseTransportFailed):
+            server.decrypt_frame(second)
+
+        # Having refused it, the receiver is still at counter 0 — it neither
+        # skipped ahead nor consumed a nonce on the rejected frame.
+        assert server.decrypt_frame(first) == "first message", \
+            "rejecting an out-of-order frame must not disturb the counter"
+        assert server.decrypt_frame(second) == "second message", \
+            "the frame must decrypt once the stream reaches its counter"
+
+    def test_tampered_frame_is_rejected(self, tmp_path):
+        """CRYPTO-1 §3.4.5 — a Noise transport message whose bytes were edited
+        fails AEAD and must be rejected, not delivered."""
+        from hivemind_bus_client.noise import NoiseTransportFailed
+
+        node, server = self._transports(tmp_path)
+        frame = bytearray(node.encrypt_frame("first message"))
+        frame[-1] ^= 0x01
+
+        with pytest.raises(NoiseTransportFailed):
+            server.decrypt_frame(bytes(frame))
+
+
+class TestSessionCipherIntegrity:
+    """CRYPTO-1 §4 — the AEAD tag provides integrity: a receiver MUST reject
+    any message whose authentication tag does not verify. A node that
+    advertised ``crypto_required`` MUST drop any unencrypted message received
+    after the handshake.
+
+    Asserted on a real, handshaken master↔satellite connection through
+    ``HiveMindClientConnection.decode`` — the server's actual ingress path.
+    Each test owns its topology because a rejected frame disconnects the peer.
+    """
+
+    @staticmethod
+    def _connected():
+        b = TopologyBuilder()
+        b.add_master("M0")
+        b.add_satellite("S0", upstream=b.get_master("M0"))
+        b.start_all()
+        m0 = b.get_master("M0")
+        conn = m0.hm_protocol.clients[b.get_satellite("S0").peer]
+        return b, conn
+
+    @staticmethod
+    def _encrypted_bus(conn):
+        from hivemind_bus_client.encryption import encrypt_as_json
+        bus = HiveMessage(HiveMessageType.BUS,
+                          payload=Message("test.event", {"ok": True}))
+        return encrypt_as_json(key=conn.crypto_key, plaintext=bus.serialize(),
+                               cipher=conn.cipher, encoding=conn.encoding)
+
+    def test_message_with_a_broken_aead_tag_is_rejected(self):
+        """CRYPTO-1 §4 — a receiver MUST reject any message whose
+        authentication tag does not verify."""
+        import json as _json
+
+        b, conn = self._connected()
+        try:
+            good = self._encrypted_bus(conn)
+            assert conn.decode(good).msg_type == HiveMessageType.BUS, \
+                "precondition: an intact encrypted BUS must decode"
+
+            forged = _json.loads(self._encrypted_bus(conn))
+            forged["tag"] = ("00" * (len(forged["tag"]) // 2)
+                             if forged["tag"] != "00" * (len(forged["tag"]) // 2)
+                             else "11" * (len(forged["tag"]) // 2))
+            with pytest.raises(Exception):
+                conn.decode(_json.dumps(forged))
+        finally:
+            b.stop_all()
+
+    def test_tampered_ciphertext_is_rejected(self):
+        """CRYPTO-1 §4 — integrity covers the body too: an edited ciphertext
+        must not decode into a message the server then acts on."""
+        import json as _json
+
+        b, conn = self._connected()
+        try:
+            forged = _json.loads(self._encrypted_bus(conn))
+            body = forged["ciphertext"]
+            forged["ciphertext"] = body[:-2] + ("aa" if body[-2:] != "aa" else "bb")
+            with pytest.raises(Exception):
+                conn.decode(_json.dumps(forged))
+        finally:
+            b.stop_all()
+
+    def test_unencrypted_message_is_dropped_when_crypto_is_required(self):
+        """CRYPTO-1 §4 / §3.3 — a node that advertised ``crypto_required``
+        MUST drop any unencrypted message received after the handshake."""
+        b, conn = self._connected()
+        try:
+            assert conn.crypto_required, \
+                "precondition: the harness master must require crypto"
+            cleartext = HiveMessage(HiveMessageType.BUS,
+                                    payload=Message("test.event", {})).serialize()
+            with pytest.raises(Exception):
+                conn.decode(cleartext)
+        finally:
+            b.stop_all()
+
+    def test_key_establishment_messages_stay_readable_in_the_clear(self):
+        """CRYPTO-1 §4 — the drop applies to traffic *after* the handshake:
+        HELLO and HANDSHAKE precede the session key and MUST remain accepted in
+        the clear, or no connection could ever be established."""
+        b, conn = self._connected()
+        try:
+            for msg_type in (HiveMessageType.HELLO, HiveMessageType.HANDSHAKE):
+                cleartext = HiveMessage(msg_type, payload={"noop": True}).serialize()
+                assert conn.decode(cleartext).msg_type == msg_type, \
+                    f"cleartext {msg_type} must remain accepted"
+        finally:
+            b.stop_all()
+
+
+class TestPrivateKeyIsNeverTransmitted:
+    """CRYPTO-1 §2 — a node MUST keep its private key secret and MUST NOT
+    transmit it. The identity that goes on the wire is the *public* key."""
+
+    def test_no_recorded_message_contains_the_private_key(self, minimal_topology):
+        b = minimal_topology
+        m0 = b.get_master("M0")
+
+        def _pem_body(pem_text):
+            return "".join(pem_text.strip().splitlines()[1:-1])
+
+        with open(m0.identity.private_key) as f:
+            private_body = _pem_body(f.read())
+        public_body = _pem_body(m0.identity.public_key)
+        wire = "\n".join(str(rec.payload) for rec in m0.recorder.snapshot())
+
+        # Positive control: the public key IS on the wire, so this search would
+        # have found the private key's base64 body had it been sent too.
+        assert public_body[:64] in wire, \
+            "precondition: the master's public key must appear in the handshake"
+        assert private_body[:64] not in wire, \
+            "the private key MUST NOT be transmitted"
