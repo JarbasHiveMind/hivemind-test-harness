@@ -58,22 +58,18 @@ from tests.conftest import (
 # tight for this module.
 pytestmark = [
     pytest.mark.timeout(30),
-    # The ask_yesno/ask_selection round trip over HiveMind does not
-    # complete: the skill thread parks inside ovos_workshop's
-    # __get_response wait and the satellite's answer never reaches it.
-    # Reproduced on the CI-parity stack (ovos-core 2.5.8a1) after the
-    # round-1 ACL/topic/capture fixes; hub side runs, the downlink into
-    # the waiting handler is the gap — needs a dedicated upstream
-    # investigation. strict=True flips loudly when fixed; the 90s
-    # timeout keeps the known hang from eating the CI job budget.
-    pytest.mark.xfail(
-        strict=True,
-        reason="get_response round trip over HiveMind never completes: "
-               "skill thread parks in ovos_workshop __get_response; "
-               "satellite answer not delivered to the waiting handler "
-               "(upstream gap)",
-    ),
 ]
+# The ask_yesno/ask_selection round trip over HiveMind used to park forever:
+# it is now PARTLY fixed — three legs pass, five still park, so the marker moved
+# from the whole module onto the five that remain broken.
+# the skill thread waited inside ovos_workshop's __get_response and the
+# satellite's answer never reached it. That was marked xfail(strict=True) so it
+# would flip loudly once fixed, and it has — these three pass on the current
+# stack. The marker is gone rather than relaxed, because a passing test behind
+# an xfail is not coverage.
+#
+# It only surfaced when the committed uv.lock was dropped: the lock had frozen
+# hivemind-core at 4.11.4a2, so CI kept re-confirming the old broken stack.
 
 # Pipeline must include converse for get_response/ask_yesno/ask_selection
 CONVERSE_PIPELINE = [
@@ -269,6 +265,10 @@ def yesno_topology():
 class TestAskYesNo:
     """TS-YN-01..04 — ask_yesno flow through HiveMind."""
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="get_response over HiveMind is only partly fixed: this leg still parks in ovos_workshop __get_response. strict=True so it flips loudly when the rest lands.",
+    )
     def test_yesno_question_reaches_satellite(self, yesno_topology):
         """TS-YN-01 — ask_yesno speak with expect_response arrives on satellite."""
         b, agent = yesno_topology
@@ -289,6 +289,10 @@ class TestAskYesNo:
             "ask_yesno speak should have expect_response=True"
         )
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="get_response over HiveMind is only partly fixed: this leg still parks in ovos_workshop __get_response. strict=True so it flips loudly when the rest lands.",
+    )
     def test_yesno_answer_yes(self, yesno_topology):
         """TS-YN-02 — answering 'yes' to ask_yesno produces correct result."""
         b, agent = yesno_topology
@@ -465,6 +469,10 @@ class TestAskSelection:
         msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "ask_selection did not speak options to satellite"
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="get_response over HiveMind is only partly fixed: this leg still parks in ovos_workshop __get_response. strict=True so it flips loudly when the rest lands.",
+    )
     def test_selection_answer_matched(self, yesno_topology):
         """TS-YN-08 — answering 'green' selects the right option."""
         b, agent = yesno_topology
@@ -496,6 +504,10 @@ class TestAskSelection:
         finally:
             responder.shutdown()
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="get_response over HiveMind is only partly fixed: this leg still parks in ovos_workshop __get_response. strict=True so it flips loudly when the rest lands.",
+    )
     def test_selection_result_routes_to_satellite(self, yesno_topology):
         """TS-YN-09 — selection result speak arrives on satellite."""
         b, agent = yesno_topology
@@ -534,6 +546,10 @@ class TestAskSelection:
 class TestAskSelectionNumeric:
     """TS-YN-10 — ask_selection with numeric=True via HiveMind."""
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="get_response over HiveMind is only partly fixed: this leg still parks in ovos_workshop __get_response. strict=True so it flips loudly when the rest lands.",
+    )
     def test_numeric_selection(self, yesno_topology):
         """TS-YN-10 — numeric menu selection: answer '2' picks 'burger'."""
         b, agent = yesno_topology

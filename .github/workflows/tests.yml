@@ -27,28 +27,20 @@ jobs:
         version: "latest"
 
     - name: Install dependencies
-      # Reproducible tooling, floating HiveMind stack: `uv export --frozen`
-      # reads pinned+hashed versions straight out of the committed uv.lock
-      # (never re-resolves it) for the dev-tooling extra (pytest and friends
-      # — packages with no reason to track a moving target) and feeds them in
-      # as a pip constraints file. The actual HiveMind stack (hivescope,
-      # hivemind-core, hivemind_bus_client, poorman-handshake — the repo's
-      # base dependencies) is deliberately NOT in uv.lock and stays on `-e .`'s
-      # normal floating resolve: those comments in pyproject.toml track
-      # specific prerelease/dev-channel floors that move often, and locking
-      # them would silently pin CI to a stale floor instead of testing dev.
-      # --prerelease=allow: the HiveMind 2.x stack (hivemind-core 4.6.x /
-      # hivemind-bus-client 0.9.x on ovos-bus-client 2.x) is prerelease-only
-      # on PyPI.
-      # The `ovos` extra is intentionally installed with a plain floating
-      # resolve rather than through the frozen uv.lock export above — see the
-      # ovos-e2e job below. Its dependency tree (ovos-core, ovos-workshop,
-      # the skill plugins) moves fast on prerelease channels, and locking it
-      # would silently pin CI to a stale floor instead of testing dev.
+      # No lockfile, on purpose. This repo tracks the latest prereleases of the
+      # whole HiveMind stack by design, and that is the point of a conformance
+      # harness: it must fail the day dev breaks, not weeks later.
+      #
+      # A committed uv.lock did the opposite. Exporting it as a pip constraints
+      # file pinned hivemind-core to 4.11.4a2 — the comment here used to claim
+      # the HiveMind stack was "deliberately NOT in uv.lock", and it was, so CI
+      # quietly stopped testing current core and sat on a PING regression
+      # (HiveMind-core#245) that a fresh resolve surfaces immediately.
+      #
+      # --prerelease=allow: the stack is prerelease-only on PyPI.
       run: |
         uv venv
-        uv export --frozen --extra dev --no-emit-project -o /tmp/hth-requirements.txt
-        uv pip install --prerelease=allow -c /tmp/hth-requirements.txt -e .[dev]
+        uv pip install --prerelease=allow -e .[dev]
 
     # In-process protocol/topology layer. The OVOS skill-execution, JS,
     # MicroPython/embedded, and matplotlib-plot tests have their own jobs with
@@ -207,11 +199,9 @@ jobs:
 
     - name: Install dependencies
       # See the harness-tests job above for why this installs from a frozen
-      # `uv export` of the committed uv.lock instead of a floating resolve.
       run: |
         uv venv
-        uv export --frozen --extra dev --no-emit-project -o /tmp/hth-requirements.txt
-        uv pip install --prerelease=allow -c /tmp/hth-requirements.txt -e .[dev]
+        uv pip install --prerelease=allow -e .[dev]
 
     - name: Run embedded interop tests
       # The embedded modules importorskip the MicroPython client, which is not
@@ -271,11 +261,9 @@ jobs:
 
     - name: Install dependencies
       # See the harness-tests job above for why this installs from a frozen
-      # `uv export` of the committed uv.lock instead of a floating resolve.
       run: |
         uv venv
-        uv export --frozen --extra dev --no-emit-project -o /tmp/hth-requirements.txt
-        uv pip install --prerelease=allow -c /tmp/hth-requirements.txt -e .[dev]
+        uv pip install --prerelease=allow -e .[dev]
 
     - name: Run MicroPython client E2E tests
       if: steps.micropython_checkout.outcome == 'success'
@@ -329,11 +317,9 @@ jobs:
 
     - name: Install Python dependencies
       # See the harness-tests job above for why this installs from a frozen
-      # `uv export` of the committed uv.lock instead of a floating resolve.
       run: |
         uv venv
-        uv export --frozen --extra dev --no-emit-project -o /tmp/hth-requirements.txt
-        uv pip install --prerelease=allow -c /tmp/hth-requirements.txt -e .[dev]
+        uv pip install --prerelease=allow -e .[dev]
 
     - name: Run JS E2E tests
       env:
