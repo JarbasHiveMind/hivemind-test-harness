@@ -83,7 +83,10 @@ dev = [
     # mailbox is served over RENDEZVOUS rather than a private HTTP service,
     # and the first with at-least-once delivery — an older release has no
     # RendezvousMailbox at all, so the suite skips instead of failing.
-    "hivemind-rendezvous>=1.0.0a1",
+    # 2.0.0a1 addresses mailboxes by the authenticated access key rather than a
+    # declared public key (hivemind-rendezvous#14 / HiveMind-core#248). The
+    # suite deposits with target_key, which 1.x does not understand.
+    "hivemind-rendezvous>=2.0.0a1",
 ]
 # Live OVOS skill execution through HiveMind (MiniCroft-backed agent). Mirrors
 # hivescope's own ``ovos`` extra, plus the intent-pipeline plugins MiniCroft
