@@ -425,7 +425,6 @@ class TestPingChainTopology:
     directly yields S0 only (1 node) from R1_master's direct-child perspective.
     """
 
-    @pytest.mark.xfail(reason="HiveMind-core#245 — a relay forwards only the first announcement of a flood, so nodes below it never learn the rest of the hive. Core and this suite disagree on what a flood is; unresolved.", strict=False)
     def test_relay_satellite_and_downstream_respond(self, chain_topology):
         """M0's PING reaches R1_sat directly AND is forwarded to S0 by the relay."""
         b = chain_topology
@@ -444,7 +443,6 @@ class TestPingChainTopology:
         assert r1_sat.peer in m0.hm_protocol.hive_mapper.nodes, \
             f"R1_sat peer {r1_sat.peer!r} should be in M0's HiveMapper"
 
-    @pytest.mark.xfail(reason="HiveMind-core#245 — a relay forwards only the first announcement of a flood, so nodes below it never learn the rest of the hive. Core and this suite disagree on what a flood is; unresolved.", strict=False)
     def test_deep_satellite_reachable_via_relay(self, chain_topology):
         """S0 is behind relay R1 but the relay forwards PING downstream, so M0
         discovers S0 in its HiveMapper."""
@@ -465,7 +463,6 @@ class TestPingChainTopology:
         assert s0.peer in r1_master.hm_protocol.hive_mapper.nodes, \
             f"S0 should appear in R1_master's HiveMapper after its own PING"
 
-    @pytest.mark.xfail(reason="HiveMind-core#245 — a relay forwards only the first announcement of a flood, so nodes below it never learn the rest of the hive. Core and this suite disagree on what a flood is; unresolved.", strict=False)
     def test_relay_ping_emits_bus_event(self, chain_topology):
         """Two hive.ping.received events fire on M0: one for R1_sat, one for S0."""
         b = chain_topology
@@ -489,7 +486,6 @@ class TestPingDeepChainTopology:
     R2_master's mapper shows: S0 only (1).
     """
 
-    @pytest.mark.xfail(reason="HiveMind-core#245 — a relay forwards only the first announcement of a flood, so nodes below it never learn the rest of the hive. Core and this suite disagree on what a flood is; unresolved.", strict=False)
     def test_m0_sees_all_three_nodes(self, deep_chain_topology):
         """M0's PING propagates through both relay levels; all 3 nodes respond."""
         b = deep_chain_topology
@@ -505,7 +501,6 @@ class TestPingDeepChainTopology:
         assert r2_sat.peer in nodes
         assert s0.peer in nodes
 
-    @pytest.mark.xfail(reason="HiveMind-core#245 — a relay forwards only the first announcement of a flood, so nodes below it never learn the rest of the hive. Core and this suite disagree on what a flood is; unresolved.", strict=False)
     def test_r1_master_sees_r2_and_s0(self, deep_chain_topology):
         """R1_master pings: R2_sat responds directly, R2 forwards to S0."""
         b = deep_chain_topology

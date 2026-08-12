@@ -30,19 +30,6 @@ is present — point `HIVEMIND_MICROPYTHON_CLIENT` at it, or CI's
 | RENDEZVOUS | `rendezvous` | both | Store-and-forward mail for an offline peer; also the harness stand-in for an inert inner payload | tested | `test_rendezvous.py` | `test_unimplemented_types.py`, `test_propagate.py`, `test_escalate.py` |
 | BINARY | `bin` | satellite→master | Binary data container (7 subtypes) | tested | `test_binary.py`, `test_e2e_binary_skill.py`. **Gap:** the binarize (bitstring) encoding is not covered — see [FAQ](../FAQ.md) |
 
-### PING — ten tests are currently xfail
-
-Ten tests across `test_ping_exactly_once.py` and `test_ping_pong.py` are marked
-`xfail` against [HiveMind-core#245](https://github.com/JarbasHiveMind/HiveMind-core/issues/245).
-They are **not** flaky and they are **not** obsolete: core and this suite disagree on what a
-PING flood is. Since hivemind-core #212, a relay forwards only the first announcement of a
-flood, so a node below it never learns the rest of the hive — `S0 should see M0 PING once,
-got 0`. Core's own `test_flood_forward_dedup.py` asserts the opposite behaviour, so the two
-repos cannot both be satisfied until the model is settled.
-
-They were invisible until now because `uv.lock` pinned hivemind-core at 4.11.4a2, which
-predates the change. Un-xfail them when #245 is resolved.
-
 ### RENDEZVOUS
 
 `HiveMindListenerProtocol.handle_rendezvous_message` serves RENDEZVOUS from a
