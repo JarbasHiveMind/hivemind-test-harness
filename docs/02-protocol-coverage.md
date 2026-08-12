@@ -27,16 +27,23 @@ is present — point `HIVEMIND_MICROPYTHON_CLIENT` at it, or CI's
 | PING | `ping` | both | Network topology discovery | tested | `test_ping_pong.py` (50 tests), `test_ping_exactly_once.py` (11 tests) |
 | QUERY | `query` | upstream+response | Like ESCALATE but stops at first responder | tested | `test_query.py` (6 tests) |
 | CASCADE | `cascade` | both+response | Like PROPAGATE but expects responses from all | tested | `test_cascade.py` (8 tests) |
-| RENDEZVOUS | `rendezvous` | reserved | Rendezvous-node peer discovery; also the harness stand-in for an unhandled inner payload | not implemented | `test_unimplemented_types.py`, `test_propagate.py`, `test_escalate.py` |
+| RENDEZVOUS | `rendezvous` | both | Store-and-forward mail for an offline peer; also the harness stand-in for an inert inner payload | untested | `test_unimplemented_types.py`, `test_propagate.py`, `test_escalate.py` |
 | BINARY | `bin` | satellite→master | Binary data container (7 subtypes) | tested | `test_binary.py`, `test_e2e_binary_skill.py`. **Gap:** the binarize (bitstring) encoding is not covered — see [FAQ](../FAQ.md) |
 
-### Not-yet-implemented types (RENDEZVOUS)
+### Untested types (RENDEZVOUS)
 
-RENDEZVOUS is defined in `HiveMessageType` but `HiveMindListenerProtocol.handle_message`
-routes it to `handle_unknown_message()` (an empty stub). The stub test in
-`test_unimplemented_types.py` verifies no crash occurs and the master records the inbound message.
+RENDEZVOUS is routed. `HiveMindListenerProtocol.handle_rendezvous_message` serves it
+from a store-and-forward mailbox when the optional `hivemind-rendezvous` package is
+installed and `rendezvous.enabled` is set; every other node replies
+`not_a_rendezvous_node`. See hivemind-core 4.13.0a1 and hivemind-rendezvous 1.0.0a1.
 
-QUERY and CASCADE are now fully implemented with dedicated handlers and test suites.
+The harness does not exercise it yet. `test_unimplemented_types.py` still only asserts
+that a RENDEZVOUS frame reaches the master without crashing, which now under-tests the
+type rather than describing an empty stub. Conformance work worth doing: deposit,
+collect, ack, at-least-once redelivery before ack, and the mailbox binding (a caller
+must not be able to collect another node's mail).
+
+QUERY and CASCADE are fully implemented with dedicated handlers and test suites.
 
 ---
 
