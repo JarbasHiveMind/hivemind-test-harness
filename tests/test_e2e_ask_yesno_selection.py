@@ -58,22 +58,16 @@ from tests.conftest import (
 # tight for this module.
 pytestmark = [
     pytest.mark.timeout(30),
-    # The ask_yesno/ask_selection round trip over HiveMind does not
-    # complete: the skill thread parks inside ovos_workshop's
-    # __get_response wait and the satellite's answer never reaches it.
-    # Reproduced on the CI-parity stack (ovos-core 2.5.8a1) after the
-    # round-1 ACL/topic/capture fixes; hub side runs, the downlink into
-    # the waiting handler is the gap — needs a dedicated upstream
-    # investigation. strict=True flips loudly when fixed; the 90s
-    # timeout keeps the known hang from eating the CI job budget.
-    pytest.mark.xfail(
-        strict=True,
-        reason="get_response round trip over HiveMind never completes: "
-               "skill thread parks in ovos_workshop __get_response; "
-               "satellite answer not delivered to the waiting handler "
-               "(upstream gap)",
-    ),
 ]
+# The ask_yesno/ask_selection round trip over HiveMind used to park forever:
+# the skill thread waited inside ovos_workshop's __get_response and the
+# satellite's answer never reached it. That was marked xfail(strict=True) so it
+# would flip loudly once fixed, and it has — these three pass on the current
+# stack. The marker is gone rather than relaxed, because a passing test behind
+# an xfail is not coverage.
+#
+# It only surfaced when the committed uv.lock was dropped: the lock had frozen
+# hivemind-core at 4.11.4a2, so CI kept re-confirming the old broken stack.
 
 # Pipeline must include converse for get_response/ask_yesno/ask_selection
 CONVERSE_PIPELINE = [
