@@ -29,11 +29,14 @@ dependencies = [
     # protocol v3 (Noise XXpsk2) floor for tests/test_protocol_v3_noise.py: the
     # Noise handshake, the password-strength backstop and derive-psk provisioning
     # all require this stack. Prerelease floors so pip resolves them without --pre.
-    # 4.13.0a1 is the first release that routes RENDEZVOUS to a mailbox
-    # (HiveMind-core#243). tests/test_rendezvous.py asserts a reply outright —
-    # an older core returns nothing at all, so the suite fails rather than
-    # skipping, which makes this floor load-bearing.
-    "hivemind-core>=4.13.0a1",
+    # 4.13.3a1 is the first release where a relay forwards every node's PING
+    # announcement rather than only the first (HiveMind-core#250, issue #245),
+    # which the test_ping_exactly_once and test_ping_pong suites assert
+    # outright. It also carries the RENDEZVOUS routing (#243) that
+    # tests/test_rendezvous.py needs and the mailbox ownership fix (#248).
+    # An older core fails these suites rather than skipping, so this floor is
+    # load-bearing.
+    "hivemind-core>=4.13.3a1",
     # 1.0.6a1 is the first release that bounds the QUERY originator's wait
     # (NODE-1 §5.5) and refuses an over-long binary metadata block
     # (WIRE-1 §4.1, hivemind-websocket-client#177). test_conformance_wave5
@@ -80,7 +83,10 @@ dev = [
     # mailbox is served over RENDEZVOUS rather than a private HTTP service,
     # and the first with at-least-once delivery — an older release has no
     # RendezvousMailbox at all, so the suite skips instead of failing.
-    "hivemind-rendezvous>=1.0.0a1",
+    # 2.0.0a1 addresses mailboxes by the authenticated access key rather than a
+    # declared public key (hivemind-rendezvous#14 / HiveMind-core#248). The
+    # suite deposits with target_key, which 1.x does not understand.
+    "hivemind-rendezvous>=2.0.0a1",
 ]
 # Live OVOS skill execution through HiveMind (MiniCroft-backed agent). Mirrors
 # hivescope's own ``ovos`` extra, plus the intent-pipeline plugins MiniCroft
