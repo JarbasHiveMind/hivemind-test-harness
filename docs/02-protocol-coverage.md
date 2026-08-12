@@ -27,16 +27,39 @@ is present — point `HIVEMIND_MICROPYTHON_CLIENT` at it, or CI's
 | PING | `ping` | both | Network topology discovery | tested | `test_ping_pong.py` (50 tests), `test_ping_exactly_once.py` (11 tests) |
 | QUERY | `query` | upstream+response | Like ESCALATE but stops at first responder | tested | `test_query.py` (6 tests) |
 | CASCADE | `cascade` | both+response | Like PROPAGATE but expects responses from all | tested | `test_cascade.py` (8 tests) |
-| RENDEZVOUS | `rendezvous` | reserved | Rendezvous-node peer discovery; also the harness stand-in for an unhandled inner payload | not implemented | `test_unimplemented_types.py`, `test_propagate.py`, `test_escalate.py` |
+| RENDEZVOUS | `rendezvous` | both | Store-and-forward mail for an offline peer; also the harness stand-in for an inert inner payload | tested | `test_rendezvous.py` | `test_unimplemented_types.py`, `test_propagate.py`, `test_escalate.py` |
 | BINARY | `bin` | satellite→master | Binary data container (7 subtypes) | tested | `test_binary.py`, `test_e2e_binary_skill.py`. **Gap:** the binarize (bitstring) encoding is not covered — see [FAQ](../FAQ.md) |
 
-### Not-yet-implemented types (RENDEZVOUS)
+### PING — ten tests are currently xfail
 
-RENDEZVOUS is defined in `HiveMessageType` but `HiveMindListenerProtocol.handle_message`
-routes it to `handle_unknown_message()` (an empty stub). The stub test in
-`test_unimplemented_types.py` verifies no crash occurs and the master records the inbound message.
+Ten tests across `test_ping_exactly_once.py` and `test_ping_pong.py` are marked
+`xfail` against [HiveMind-core#245](https://github.com/JarbasHiveMind/HiveMind-core/issues/245).
+They are **not** flaky and they are **not** obsolete: core and this suite disagree on what a
+PING flood is. Since hivemind-core #212, a relay forwards only the first announcement of a
+flood, so a node below it never learns the rest of the hive — `S0 should see M0 PING once,
+got 0`. Core's own `test_flood_forward_dedup.py` asserts the opposite behaviour, so the two
+repos cannot both be satisfied until the model is settled.
 
-QUERY and CASCADE are now fully implemented with dedicated handlers and test suites.
+They were invisible until now because `uv.lock` pinned hivemind-core at 4.11.4a2, which
+predates the change. Un-xfail them when #245 is resolved.
+
+### RENDEZVOUS
+
+`HiveMindListenerProtocol.handle_rendezvous_message` serves RENDEZVOUS from a
+store-and-forward mailbox when the optional `hivemind-rendezvous` package is installed
+and `rendezvous.enabled` is set; every other node replies `not_a_rendezvous_node`.
+Requires hivemind-core 4.13.0a1 and hivemind-rendezvous 1.0.0a1.
+
+`test_rendezvous.py` (TS-RDV-01..09) covers deposit, collect and ack, the INTERCOM-only
+rule, at-least-once redelivery before ack, and the mailbox binding — a caller cannot
+collect or ack another node's mail, because the request has no field that names a
+mailbox. The suite skips when hivemind-rendezvous is absent.
+
+`test_unimplemented_types.py` still asserts only that a RENDEZVOUS frame reaches the
+master without crashing; that remains valid as the inert-inner-payload case used by
+PROPAGATE/ESCALATE/BROADCAST.
+
+QUERY and CASCADE are fully implemented with dedicated handlers and test suites.
 
 ---
 
@@ -138,6 +161,7 @@ Counts from `pytest tests --collect-only -q`.
 | `test_routing.py` | 7 | Deep chain escalate/propagate, hop tracking |
 | `test_shared_bus.py` | 4 | Passive bus monitoring (share_bus flag) |
 | `test_unimplemented_types.py` | 4 | RENDEZVOUS / unknown-type stub safety |
+| `test_rendezvous.py` | 9 | RENDEZVOUS deposit/collect/ack, mailbox binding, at-least-once |
 | `test_voice_pe_protocol.py` | 18 | Voice PE protocol message handling |
 | `test_conformance_wave5.py` | 14 | TRANSPORT-1 §4, NODE-1 §5.5, WIRE-1 §4.1 and AUDIO-1 §2 |
 | `test_spec_agent1.py` | 9 | HIVEMIND-AGENT-1 agent-side contract |
