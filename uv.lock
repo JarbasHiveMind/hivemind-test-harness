@@ -1076,7 +1076,7 @@ wheels = [
 
 [[package]]
 name = "hivemind-core"
-version = "4.11.4a2"
+version = "4.13.0a1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1089,6 +1089,7 @@ dependencies = [
     { name = "hivemind-websocket-protocol" },
     { name = "json-database" },
     { name = "ovos-bus-client" },
+    { name = "ovos-plugin-manager" },
     { name = "ovos-utils" },
     { name = "poorman-handshake" },
     { name = "pybase64" },
@@ -1096,9 +1097,9 @@ dependencies = [
     { name = "rich" },
     { name = "setuptools" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/92/d91b9de223e9445bcb1a549b39ac0d21d9b568b5f5f6f935d69510c9b141/hivemind_core-4.11.4a2.tar.gz", hash = "sha256:49e7e9c9036ee7544796fd775d509b5651b07a38474591d2458fd7f1d40a4482", size = 112062, upload-time = "2026-08-04T19:27:50.375Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/be/68/421b5085320d864d9a6ac899fc47e17b60e62709159d82176fd5ada10ff8/hivemind_core-4.13.0a1.tar.gz", hash = "sha256:acdf8c85b3ec61d7be4aa8b85c61823eb5cf3a63a7473b9aa2eb23ac36baa264", size = 140132, upload-time = "2026-08-11T22:29:25.606Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0a/76/9735e56a58c94dce33e500ac8d7be22dd6d0676afdad944224ca9c492406/hivemind_core-4.11.4a2-py3-none-any.whl", hash = "sha256:0680e9eeafbee1d2fa94a5a19cc0ad60411d2f01fc0d28ccd214e1c1bb0b8bde", size = 63928, upload-time = "2026-08-04T19:27:48.939Z" },
+    { url = "https://files.pythonhosted.org/packages/17/ab/902bdcbadf4e6b91ddfdf4ceb10ed5bced75269845c88c6cec9f311b6368/hivemind_core-4.13.0a1-py3-none-any.whl", hash = "sha256:10d3f6d0196556a0d49c8251883e8c88dd8e0227cbfb913980a911c7820c3017", size = 73783, upload-time = "2026-08-11T22:29:24.57Z" },
 ]
 
 [[package]]
@@ -1182,6 +1183,19 @@ wheels = [
 ]
 
 [[package]]
+name = "hivemind-rendezvous"
+version = "1.0.0a1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hivemind-bus-client" },
+    { name = "json-database" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/36/aa/0dcd82e08890240a88bf4fda4095e68fa01478d50449f0f34253db5d15c9/hivemind_rendezvous-1.0.0a1.tar.gz", hash = "sha256:e9685bc53e263663ef82ad4dc9dcf28816312601a67fb7d8c06ae0bc8a9a0bce", size = 12311, upload-time = "2026-08-11T22:28:23.887Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e7/5a/1bfc8e7a19b20fad36794be99b6d63c76e4dccc4278bdf48b059d6de1f88/hivemind_rendezvous-1.0.0a1-py3-none-any.whl", hash = "sha256:5c3048fb8a2d841ea54ae085dc87a430da0e6be81f6893644f308a84da9a1ec2", size = 10573, upload-time = "2026-08-11T22:28:23.066Z" },
+]
+
+[[package]]
 name = "hivemind-sqlite-database"
 version = "0.4.2a1"
 source = { registry = "https://pypi.org/simple" }
@@ -1211,6 +1225,7 @@ dev = [
     { name = "hivemind-audio-binary-protocol" },
     { name = "hivemind-http-protocol" },
     { name = "hivemind-presence" },
+    { name = "hivemind-rendezvous" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -1241,9 +1256,10 @@ plot = [
 requires-dist = [
     { name = "hivemind-audio-binary-protocol", marker = "extra == 'dev'", specifier = ">=2.1.8a2" },
     { name = "hivemind-bus-client", specifier = ">=1.0.6a1" },
-    { name = "hivemind-core", specifier = ">=4.11.4a2" },
+    { name = "hivemind-core", specifier = ">=4.13.0a1" },
     { name = "hivemind-http-protocol", marker = "extra == 'dev'", specifier = ">=0.0.7a1" },
     { name = "hivemind-presence", marker = "extra == 'dev'", specifier = ">=0.0.5a1" },
+    { name = "hivemind-rendezvous", marker = "extra == 'dev'", specifier = ">=1.0.0a1" },
     { name = "hivescope", specifier = ">=0.6.2a1" },
     { name = "hivescope", extras = ["ovos"], marker = "extra == 'ovos'", specifier = ">=0.6.2a1" },
     { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.5" },

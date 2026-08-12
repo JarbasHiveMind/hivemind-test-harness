@@ -1,18 +1,20 @@
 """
-TS-STUB-01..04 — Unimplemented HiveMessage types.
+TS-STUB-01..04 — frames that no handler is expected to act on.
 
-QUERY, CASCADE, PING, and RENDEZVOUS are defined in HiveMessageType but have no
-handler in HiveMindListenerProtocol. They fall through to handle_unknown_message(),
-which is an empty stub (does nothing). These tests verify:
-  1. Sending them does not crash the master.
-  2. The master records the inbound message.
+These began as coverage for message types that had no handler at all. All four
+now route: QUERY, CASCADE and PING have full handlers and their own suites, and
+RENDEZVOUS reaches a store-and-forward mailbox on a node that has one
+(hivemind-core 4.13.0a1). What survives here is the weaker guarantee that still
+matters: sending these frames does not crash the master, and the master records
+them as inbound.
 
-RENDEZVOUS doubles as the harness's stand-in for an arbitrary inner payload in
-PROPAGATE/ESCALATE/BROADCAST, because it is a registry type that no handler on
-either side claims.
+RENDEZVOUS also serves as the harness's stand-in for an inert inner payload in
+PROPAGATE/ESCALATE/BROADCAST. That still holds: those verbs forward the inner
+frame rather than dispatching it, so no mailbox is involved.
 
-TODO: When QUERY/CASCADE/PING/RENDEZVOUS are implemented, replace these no-crash
-      tests with behavioral tests that verify the actual handler logic.
+TODO: RENDEZVOUS needs real conformance coverage of its own — deposit, collect,
+      ack, redelivery before ack, and the mailbox binding that stops one node
+      collecting another's mail. See docs/02-protocol-coverage.md.
 """
 import pytest
 from ovos_bus_client.message import Message
@@ -93,8 +95,13 @@ class TestUnimplementedTypes:
                 b.stop_all()
 
     def test_rendezvous_does_not_crash(self):
-        """TS-STUB-04 — RENDEZVOUS falls to handle_unknown_message (empty stub).
-        TODO: implement RENDEZVOUS handler (peer discovery / hole-punching)."""
+        """TS-STUB-04 — a RENDEZVOUS frame reaches the master without crashing.
+
+        RENDEZVOUS is routed now (hivemind-core 4.13.0a1): a node with no
+        mailbox answers not_a_rendezvous_node instead of dropping the frame.
+        This test only pins that the frame arrives, so it stays valid, but it
+        no longer covers the type. TODO: real conformance for deposit,
+        collect, ack, redelivery before ack, and the mailbox binding."""
         b = None
         try:
             b = _make_topology()
