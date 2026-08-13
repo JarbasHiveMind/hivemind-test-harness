@@ -37,6 +37,10 @@ Topology catalogue
 """
 import random
 import socket
+from dataclasses import dataclass
+from typing import Optional
+import threading
+import asyncio
 import time
 import pytest
 from hivescope.topology import TopologyBuilder
@@ -541,3 +545,118 @@ def open_capture(agent, **kwargs):
         session._generation += 1
         session._armed = True
     return cap
+
+# ---------------------------------------------------------------------------
+# Real transport — for sustained-load scenarios
+# ---------------------------------------------------------------------------
+#
+# The in-process simulator routes through hivescope's LoopbackNetworkProtocol,
+# which never loads a transport plugin. Anything that asks "what does the node
+# do when N satellites arrive at once" has to go through the listener a
+# deployment actually runs, so these fixtures start the real Tornado one.
+
+
+@dataclass
+class TornadoHub:
+    """A live HiveMindWebsocketProtocol listener and the way in."""
+    host: str
+    port: int
+    api_key: str
+    password: str
+    master: object
+
+    def register(self, name: str) -> str:
+        """Register one more satellite and return its access key.
+
+        A fleet must not share an access key: the Noise pin is keyed by it, so
+        two satellites using the same one fight over the pin and each retries
+        the handshake. Real deployments give every device its own identity, and
+        so should a load scenario.
+        """
+        key = f"{name}-access-key"
+        self.master.register_satellite(
+            key, password=self.password,
+            allowed_types=["recognizer_loop:utterance", "speak"])
+        return key
+
+    @property
+    def url(self) -> str:
+        return f"ws://{self.host}:{self.port}"
+
+    @property
+    def listener(self):
+        return self.master.hm_protocol
+
+    def authorization(self, useragent: str = "load",
+                      key: Optional[str] = None) -> str:
+        """The ?authorization= value for a registered satellite."""
+        import pybase64
+        return pybase64.b64encode(
+            f"{useragent}:{key or self.api_key}".encode()).decode("ascii")
+
+    def socket_url(self, useragent: str = "load",
+                   key: Optional[str] = None) -> str:
+        return f"{self.url}/?authorization={self.authorization(useragent, key)}"
+
+
+@pytest.fixture
+def tornado_hub():
+    """A real Tornado listener on a free port, torn down with the test.
+
+    Skips rather than fails when hivemind-websocket-protocol is absent, so the
+    rest of the suite still runs on a partial install.
+    """
+    hwp = pytest.importorskip(
+        "hivemind_websocket_protocol",
+        reason="hivemind-websocket-protocol is needed for real-transport tests")
+    from hivescope.node import MasterNode
+    from tornado import ioloop, web
+    from tornado.platform.asyncio import AnyThreadEventLoopPolicy
+
+    api_key = "load-test-api-key"
+    password = "correct-horse-battery-staple-9$"
+
+    master = MasterNode.create("M0", require_crypto=False,
+                               handshake_enabled=True)
+    master.register_satellite(api_key, password=password,
+                              allowed_types=["recognizer_loop:utterance",
+                                             "speak"])
+
+    port = free_port()
+    ready = threading.Event()
+    failure = []
+    loop_ref = []
+
+    def _serve():
+        try:
+            asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
+            loop = ioloop.IOLoop()
+            loop.make_current()
+            loop_ref.append(loop)
+            hwp.HiveMindTornadoWebSocket.loop = loop
+            hwp.HiveMindTornadoWebSocket.hm_protocol = master.hm_protocol
+            web.Application(
+                [("/", hwp.HiveMindTornadoWebSocket)],
+                trusted_networks=(), trusted_headers=(),
+            ).listen(port, "127.0.0.1")
+            loop.add_callback(ready.set)
+            loop.start()
+        except Exception as exc:  # noqa: BLE001
+            failure.append(exc)
+            ready.set()
+
+    thread = threading.Thread(target=_serve, daemon=True)
+    thread.start()
+    if not ready.wait(timeout=10.0):
+        raise RuntimeError("Tornado listener did not start within 10s")
+    if failure:
+        raise failure[0]
+
+    try:
+        yield TornadoHub(host="127.0.0.1", port=port, api_key=api_key,
+                         password=password, master=master)
+    finally:
+        if loop_ref:
+            loop_ref[0].add_callback(loop_ref[0].stop)
+        thread.join(timeout=5.0)
+

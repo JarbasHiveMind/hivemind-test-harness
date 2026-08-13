@@ -73,6 +73,11 @@ dev = [
     # (it is an optional LGPL transport for end users), so depending on the
     # package alone does not pull it in.
     "zeroconf",
+    # tests/test_load_admission.py starts the real Tornado listener, because
+    # admission cost is paid on its IOLoop and hivescope's loopback never
+    # loads a transport plugin. The fixture skips if this is missing, so it is
+    # only needed to actually run the load scenarios.
+    "hivemind-websocket-protocol>=0.2.0a1",
     # test_conformance_wave5 pins the TRANSPORT-1 §4 retention bound, which
     # lives in the HTTP binding.
     # 0.0.7a1 is the first release carrying the TRANSPORT-1 §4 retention bound
@@ -125,6 +130,10 @@ plot = [
 timeout = 30
 # --strict-markers: an unregistered marker is a typo, not a silent no-op.
 addopts = "--strict-markers"
+# tests/ holds sibling helper modules (``_load``) that the load scenarios
+# import directly; without this they are only importable when pytest happens
+# to have inserted their directory via rootdir inference.
+pythonpath = ["tests"]
 markers = [
     "slow: tests that spin up large topologies (deselect with -m 'not slow')",
 ]
