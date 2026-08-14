@@ -33,6 +33,40 @@ The `tests/` directory covers:
 
 ---
 
+## Sustained load against a real listener
+
+Most of this suite routes through hivescope's in-process loopback, which never
+loads a transport plugin. Admission cost is paid on the listener's single
+IOLoop, so it only appears when real sockets arrive together.
+
+`tests/test_load_admission.py` starts the actual `HiveMindWebsocketProtocol`
+(fixture: `tornado_hub`) and opens a synchronised burst of connections:
+
+```bash
+pytest tests/test_load_admission.py -m slow -s                     # 100 clients
+HIVEMIND_LOAD_CLIENTS=400 pytest tests/test_load_admission.py -m slow -s
+```
+
+`HIVEMIND_LOAD_HANDSHAKE_CLIENTS` sizes the tests that need a full PAKE
+handshake (default 15) — those are much heavier than a bare admission.
+
+These assert the invariants — everyone is admitted, nobody errors, the listener
+releases every client — and **print** the latency distribution rather than
+asserting a threshold, so the same test doubles as the benchmark you re-run
+against a change. Absolute numbers are host-dependent; only two arms measured
+on the same machine are comparable.
+
+Every satellite gets its own access key. Sharing one makes the Noise pin
+contend and each client retries its handshake, which shows up as latency that
+has nothing to do with the node.
+
+Note on the reconnect scenario: on a single loopback host the second wave
+races the first wave's sockets through `TIME_WAIT`, so it reads slower than the
+first by a wide margin. That is client-side ephemeral-port pressure, not the
+listener — read it as a relative regression signal, not an absolute number.
+
+---
+
 ## Dependency: hivescope
 
 All test infrastructure (`TopologyBuilder`, `MasterNode`, `SatelliteNode`, `RelayNode`,
