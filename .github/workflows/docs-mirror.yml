@@ -44,7 +44,7 @@ jobs:
 
     - name: Checkout hivemind-test-harness
       if: steps.pat_check.outputs.has_pat == 'true'
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         path: hivemind-test-harness
         persist-credentials: false
@@ -53,7 +53,7 @@ jobs:
       id: hivescope_checkout
       if: steps.pat_check.outputs.has_pat == 'true'
       continue-on-error: true
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: JarbasHiveMind/hivescope
         ref: dev
