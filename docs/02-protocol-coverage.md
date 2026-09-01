@@ -154,6 +154,7 @@ Counts from `pytest tests --collect-only -q`.
 | `test_spec_agent1.py` | 9 | HIVEMIND-AGENT-1 agent-side contract |
 | `test_spec_audio1.py` | 16 | HIVEMIND-AUDIO-1 binary audio contract |
 | `test_spec_bridge1.py` | 6 | HIVEMIND-BRIDGE-1 source/destination/session fidelity |
+| `test_spec_bridge1_session_nat.py` | 5 | HIVEMIND-BRIDGE-1 §4 per-connection session NAT, multiplex isolation, contents-merge, admin exemption |
 | `test_spec_crypto1.py` | 26 | HIVEMIND-CRYPTO-1 handshake, AEAD and origin authentication |
 | `test_spec_msg1.py` | 26 | HIVEMIND-MSG-1 normative requirements |
 | `test_spec_musts.py` | 41 | Cross-spec MUSTs that had no other coverage |
