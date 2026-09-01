@@ -1427,7 +1427,7 @@ class TestProtocolFloorOnPerformedVersion:
                             lambda: {"min_protocol_version": 3})
 
         dropped = []
-        monkeypatch.setattr(conn, "disconnect", lambda: dropped.append(True))
+        monkeypatch.setattr(conn, "disconnect", lambda *a, **k: dropped.append(True))
         conn.crypto_key = None
 
         m0.hm_protocol.handle_handshake_message(
@@ -1456,7 +1456,7 @@ class TestProtocolFloorOnPerformedVersion:
                             lambda: {"min_protocol_version": 2})
 
         dropped = []
-        monkeypatch.setattr(conn, "disconnect", lambda: dropped.append(True))
+        monkeypatch.setattr(conn, "disconnect", lambda *a, **k: dropped.append(True))
         conn.crypto_key = None
 
         m0.hm_protocol.handle_handshake_message(
