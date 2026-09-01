@@ -292,8 +292,15 @@ class TestNeverCompletedGatheringsAreBounded:
             m0.hm_protocol.cascade_select_callback = lambda *a, **kw: None
 
             for i in range(600):
+                query_id = f"q{i}"
+                # MSG-1 §5.2 participation binding: a response is only routed
+                # (and only reaches the CASCADE collector) if the master
+                # already recorded an outstanding request for its query_id —
+                # otherwise it is dropped as unbacked before the collector
+                # bound in _route_query_response is ever exercised.
+                m0.hm_protocol._record_outstanding_query(query_id, s0.peer)
                 m0.hm_protocol._route_query_response(
-                    _cascade_response(f"q{i}", "R1", "x",
+                    _cascade_response(query_id, "R1", "x",
                                       originator_peer=s0.peer),
                     None)
 

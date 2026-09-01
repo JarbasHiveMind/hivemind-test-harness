@@ -4,6 +4,7 @@ TS-BUS-01..04 — BUS message scenarios.
 import pytest
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
+from hivescope import assert_session_id_natted
 
 
 class TestSatelliteInjectsBus:
@@ -49,8 +50,10 @@ class TestSatelliteInjectsBus:
 
         msg = m0.agent_protocol.last_injected("recognizer_loop:utterance")
         assert msg is not None
-        sess = msg.context.get("session") or {}
-        assert sess.get("session_id") == s0.shim.session_id
+        # HIVEMIND-BRIDGE-1 §4: a non-admin's declared session_id is NATted
+        # to f"{conn_nonce}:{declared_id}" before it reaches the bus, so it
+        # is never preserved verbatim.
+        assert_session_id_natted(m0, s0, s0.shim.session_id)
 
 
 class TestMasterReplyToSatellite:
@@ -136,15 +139,20 @@ class TestMultipleSatellitesBus:
         s0.send(Message("recognizer_loop:utterance", {"utterances": ["s0 msg"]}))
         s1.send(Message("recognizer_loop:utterance", {"utterances": ["s1 msg"]}))
 
-        msgs = m0.agent_protocol.injected
-        by_session = {}
-        for m in msgs:
-            sid = (m.context.get("session") or {}).get("session_id")
-            by_session.setdefault(sid, []).append(m)
+        # HIVEMIND-BRIDGE-1 §4: each satellite's declared session_id is NATted
+        # to f"{conn_nonce}:{declared_id}" — since each is a distinct
+        # connection, they get distinct nonces and can never collide, even
+        # if they declared the same session_id.
+        assert_session_id_natted(m0, s0, s0.shim.session_id)
+        assert_session_id_natted(m0, s1, s1.shim.session_id)
 
-        assert s0.shim.session_id in by_session
-        assert s1.shim.session_id in by_session
-        assert s0.shim.session_id != s1.shim.session_id
+        # And the resulting Layer-1 ids must actually be distinct, i.e. the
+        # bug this test guards against (declared ids colliding onto one
+        # OVOS session) does not happen.
+        msgs = [m for m in m0.agent_protocol.injected
+                if m.msg_type == "recognizer_loop:utterance"]
+        layer1_ids = {(m.context.get("session") or {}).get("session_id") for m in msgs}
+        assert len(layer1_ids) == 2
 
 
 # resolve forward reference used in test_unauthorized_type_is_dropped

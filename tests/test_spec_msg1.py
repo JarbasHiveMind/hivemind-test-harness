@@ -444,11 +444,19 @@ class TestAnswerRoutingFallback:
     def test_answer_walks_the_route_back_when_originator_is_not_connected(
             self, two_satellite_star):
         b = two_satellite_star
+        m0 = b.get_master("M0")
         s0, s1 = b.get_satellite("S0"), b.get_satellite("S1")
 
         to_s1, to_s0 = [], []
         s1.shim.emitter.on(HiveMessageType.QUERY, to_s1.append)
         s0.shim.emitter.on(HiveMessageType.QUERY, to_s0.append)
+
+        # MSG-1 §5.2 participation binding: an answer is only routed (via
+        # either branch below) if the master already recorded an outstanding
+        # request for its query_id, bound to the connection the request
+        # arrived on — here, S1. Without this the response is dropped as
+        # unbacked before route-walking is ever reached.
+        m0.hm_protocol._record_outstanding_query("q-fallback", s1.peer)
 
         # The originator is two hops away behind S1, so it is not in
         # ``clients``; the recorded route names S1 as the way back.
