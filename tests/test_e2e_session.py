@@ -21,6 +21,7 @@ from ovos_bus_client.message import Message
 from ovos_spec_tools import SpecMessage
 from ovos_bus_client.session import Session
 
+from hivescope import assert_session_id_natted
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
     open_capture,
@@ -96,10 +97,19 @@ class TestSessionIdPreserved:
     """TS-SE-02 — session ID preserved through HiveMind."""
 
     def test_session_id_preserved(self, session_topology):
-        """TS-SE-02 — response session_id matches satellite's session."""
+        """TS-SE-02 — response session_id round-trips the NATted Layer-1 id.
+
+        HIVEMIND-BRIDGE-1 §4: a non-admin's declared session_id is namespaced
+        by the connection's nonce (f"{conn_nonce}:{declared_id}") before it
+        reaches the bus, so it is never preserved verbatim. What must hold is
+        that the NATted id installed on injection is the same one that comes
+        back on the response — i.e. the satellite's session round-trips
+        through MiniCroft intact, just under its Layer-1 name.
+        """
         b, agent = session_topology
         agent.clear()
         s0 = b.get_satellite("S0")
+        m0 = b.get_master("M0")
 
         cap = open_capture(agent)
         s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
@@ -108,8 +118,14 @@ class TestSessionIdPreserved:
         speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
         assert speak is not None
         speak_session = speak.context.get("session", {})
-        assert speak_session.get("session_id") == s0.shim.session_id, (
-            f"Session ID mismatch: expected {s0.shim.session_id}, "
+
+        # The inbound utterance was NATted per BRIDGE-1 §4 ...
+        assert_session_id_natted(m0, s0, s0.shim.session_id)
+        # ... and that same NATted id is the one the response carries back.
+        conn = m0.hm_protocol.clients[s0.peer]
+        expected_id = f"{conn.conn_nonce}:{s0.shim.session_id}"
+        assert speak_session.get("session_id") == expected_id, (
+            f"Session ID mismatch: expected NATted id {expected_id}, "
             f"got {speak_session.get('session_id')}"
         )
 
@@ -140,10 +156,17 @@ class TestMultiTurnSession:
     """TS-SE-04 — multi-turn session continuity."""
 
     def test_multi_turn_session(self, session_topology):
-        """TS-SE-04 — second utterance carries session from first."""
+        """TS-SE-04 — second utterance carries the same NATted session as the first.
+
+        HIVEMIND-BRIDGE-1 §4 NATs the declared session_id to
+        f"{conn_nonce}:{declared_id}" before it reaches the bus, so continuity
+        across turns means the *NATted* id is stable, not the verbatim
+        declared one (which is never installed on the bus in the first place).
+        """
         b, agent = session_topology
         agent.clear()
         s0 = b.get_satellite("S0")
+        m0 = b.get_master("M0")
 
         # First utterance
         cap1 = open_capture(agent)
@@ -161,7 +184,11 @@ class TestMultiTurnSession:
         speak2 = next((m for m in messages2 if m.msg_type == SpecMessage.SPEAK), None)
         assert speak2 is not None, "Second utterance did not produce speak"
 
-        # Both should have the same session_id
+        # Both turns land on the same NATted Layer-1 session — continuity
+        # holds under the connection's nonce, even though it is never the
+        # verbatim declared id.
+        conn = m0.hm_protocol.clients[s0.peer]
+        expected_id = f"{conn.conn_nonce}:{s0.shim.session_id}"
         s1 = speak1.context.get("session", {}).get("session_id")
         s2 = speak2.context.get("session", {}).get("session_id")
-        assert s1 == s2 == s0.shim.session_id
+        assert s1 == s2 == expected_id
