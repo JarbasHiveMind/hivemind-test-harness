@@ -33,15 +33,13 @@ jobs:
         version: "latest"
 
     - name: Install dependencies
-      # Reproducible install: freeze the dev+plot extras straight from the
-      # committed uv.lock (--frozen never re-resolves it) instead of letting
-      # pip re-resolve floating ranges on every run. `ovos` is installed
-      # separately (see tests.yml) as a floating, non-frozen extra, so it is
-      # not requested here.
+      # No lockfile, on purpose (see tests.yml): this repo tracks the latest
+      # prereleases of the HiveMind stack, so the install re-resolves floating
+      # ranges every run. `ovos` is a separate floating extra installed only in
+      # the e2e jobs, not requested here.
       run: |
         uv venv
-        uv export --frozen --extra dev --extra plot --no-emit-project -o /tmp/hth-nightly-requirements.txt
-        uv pip install --prerelease=allow -c /tmp/hth-nightly-requirements.txt -e .[dev,plot]
+        uv pip install --prerelease=allow -e .[dev,plot]
 
     - name: Run slow tests
       run: |
