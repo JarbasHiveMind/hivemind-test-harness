@@ -30,7 +30,9 @@ from tests.conftest import (
 # tight for this module.
 pytestmark = pytest.mark.timeout(300)
 
-ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
+# ovos-skill-hello-world 0.2.8a2 moved HelloWorldIntent from an Adapt
+# IntentBuilder to HelloWorldIntent.intent, so only Padatious matches it.
+HELLO_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 
 
 @pytest.fixture(scope="module")
@@ -139,7 +141,7 @@ class TestAdminBroadcastWithSkill:
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent)
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
         speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
@@ -152,7 +154,7 @@ class TestAdminBroadcastWithSkill:
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent)
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
         msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)

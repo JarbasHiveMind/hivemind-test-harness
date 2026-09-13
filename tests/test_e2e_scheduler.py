@@ -82,9 +82,14 @@ class SchedulerTestSkill(OVOSSkill):
         self.speak("timer callback executed")
 
     def handle_immediate(self, message: Message):
-        """Schedule event with 0 delay — fires almost immediately."""
+        """Schedule event with a minimal delay — fires almost immediately.
+
+        SCHEDULER-1 §3.4.3 (`in`): `seconds` is a "number > 0". A delay of 0 is an
+        invalid record, and the scheduler refuses it ("invalid_record:
+        in.seconds must be a number > 0"), so the smallest valid delay is used.
+        """
         self.speak("scheduling immediate")
-        self.schedule_event(self._on_immediate, 0, name="immediate_timer")
+        self.schedule_event(self._on_immediate, 0.1, name="immediate_timer")
 
     def _on_immediate(self, message: Message):
         self.speak("immediate callback fired")

@@ -31,7 +31,9 @@ from tests.conftest import (
 # tight for this module.
 pytestmark = pytest.mark.timeout(300)
 
-ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
+# ovos-skill-hello-world 0.2.8a2 moved HelloWorldIntent from an Adapt
+# IntentBuilder to HelloWorldIntent.intent, so only Padatious matches it.
+HELLO_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
     "ovos-padatious-pipeline-plugin-high",
@@ -108,7 +110,7 @@ class TestLangPropagation:
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent)
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id,
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id,
                                 lang="en-US"))
         messages = cap.wait(timeout=15)
 
@@ -123,7 +125,7 @@ class TestLangPropagation:
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent)
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id,
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id,
                                 lang="en-US"))
         messages = cap.wait(timeout=15)
 
@@ -146,7 +148,7 @@ class TestLangMismatch:
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent)
-        s0.send(make_utterance("hallo welt", ADAPT_PIPELINE, s0.shim.session_id,
+        s0.send(make_utterance("hallo welt", HELLO_PIPELINE, s0.shim.session_id,
                                 lang="de-DE"))
         messages = cap.wait(timeout=15)
 
@@ -162,7 +164,7 @@ class TestLangMismatch:
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent)
-        s0.send(make_utterance("bonjour le monde", ADAPT_PIPELINE, s0.shim.session_id,
+        s0.send(make_utterance("bonjour le monde", HELLO_PIPELINE, s0.shim.session_id,
                                 lang="fr-FR"))
         messages = cap.wait(timeout=15)
 
@@ -182,7 +184,7 @@ class TestLangInResponse:
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent)
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id,
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id,
                                 lang="en-US"))
         messages = cap.wait(timeout=15)
 
