@@ -54,6 +54,21 @@ from hivemind.client import HiveMindClient, STATE_READY, STATE_DISCONNECTED
 from hivescope.topology import TopologyBuilder
 from ovos_bus_client.message import Message
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
+from poorman_handshake.noise import derive_psk
+
+
+def _provisioned_psk(master, password: str) -> bytes:
+    """The Noise PSK a constrained client must be provisioned with.
+
+    HIVEMIND-CRYPTO-1 §3.4: a constrained node is provisioned with the 32-byte
+    PSK, computed on a capable host as argon2id(password, SHA-256(node_id)) for
+    the server it connects to, and must not be assumed to derive it on-device.
+    The MicroPython client follows that: with no ``psk`` and no ``legacy_hub``
+    it refuses the hub after HELLO (it stays in state 2) instead of falling
+    back to the removed legacy handshake. ``node_id`` is the value the hub sends
+    in its HELLO; this is what ``hivemind-core derive-psk`` prints.
+    """
+    return derive_psk(password, node_id=master.hm_protocol._node_id)
 
 
 def _extract_port(url: str) -> int:
@@ -118,6 +133,7 @@ class TestMicroPythonE2E:
                 username="mpy-sat",
                 access_key="mpy-key",
                 password="ember-thistle-cobalt-gust-24",
+                psk=_provisioned_psk(m, "ember-thistle-cobalt-gust-24"),
                 reconnect_ms=0,
             )
             assert client.state == STATE_DISCONNECTED
@@ -147,6 +163,7 @@ class TestMicroPythonE2E:
                 username="mpy-sat",
                 access_key="mpy-key",
                 password="ember-thistle-cobalt-gust-24",
+                psk=_provisioned_psk(m, "ember-thistle-cobalt-gust-24"),
                 reconnect_ms=0,
             )
             await _connect_and_wait(client)
@@ -188,6 +205,7 @@ class TestMicroPythonE2E:
                 username="mpy-sat",
                 access_key="mpy-key",
                 password="ember-thistle-cobalt-gust-24",
+                psk=_provisioned_psk(m, "ember-thistle-cobalt-gust-24"),
                 reconnect_ms=0,
             )
             client.on_bus_message = on_bus
@@ -233,11 +251,13 @@ class TestMicroPythonE2E:
             c1 = HiveMindClient(
                 host="127.0.0.1", port=port,
                 username="c1", access_key="mpy-1", password="vellum-otter-quartz-brim-40",
+                psk=_provisioned_psk(m, "vellum-otter-quartz-brim-40"),
                 reconnect_ms=0,
             )
             c2 = HiveMindClient(
                 host="127.0.0.1", port=port,
                 username="c2", access_key="mpy-2", password="pearl-anvil-cedar-lynx-hush-82",
+                psk=_provisioned_psk(m, "pearl-anvil-cedar-lynx-hush-82"),
                 reconnect_ms=0,
             )
 

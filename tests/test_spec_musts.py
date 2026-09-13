@@ -518,71 +518,62 @@ def _override_server_config(monkeypatch, **overrides):
     return cfg
 
 
-class TestProtocolVersionFloor:
-    """HIVEMIND-CRYPTO-1 §3.1 / HIVEMIND-WIRE-1 §2 — a server MUST refuse a
-    handshake that *completes* below its configured ``min_protocol_version``.
+class TestLegacyHandshakeIsRefused:
+    """HIVEMIND-CRYPTO-1 §3 / HIVEMIND-WIRE-1 §2 — there is no protocol-version
+    floor to configure any more: the Noise handshake is the only key exchange,
+    and "a connection that cannot complete the Noise handshake is rejected,
+    and there is no unencrypted-session fallback and no alternative key
+    derivation" (CRYPTO-1 §3).
 
-    The subtlety this pins is the reason the check exists at all. Advertising a
-    floor in the HELLO parameter set is not enforcement: a peer that is
-    *capable* of the floor (it has a password, so the server offers Noise/v3)
-    can simply answer with the legacy password envelope and finish the
-    connection at v2. If the floor is only judged on declared capability, that
-    peer is admitted at a version the operator refused — a silent downgrade.
-    hivemind-core therefore re-checks the floor against the version the
-    handshake is actually being performed at, in ``handle_handshake_message``.
-
-    Both cases below run the same v3-capable satellite through the same legacy
-    v2 password handshake; only the configured floor differs.
+    This class used to pin that a legacy v2 password handshake was refused
+    under ``min_protocol_version=3`` and admitted under ``2``. Protocol v3
+    removed both the setting and the v2 handshake, so the downgrade it guarded
+    against is now closed for every configuration. What is pinned instead is
+    that closure: a genuine v2 password envelope is refused on a v3 node, and
+    the Noise handshake, as the control, still completes.
     """
 
     @staticmethod
-    def _attempt_legacy_handshake():
-        """Wire one satellite to one master and let the handshake run.
+    def _v2_envelope(password: str):
+        """A genuine v2 password-handshake envelope, built with the real
+        password, so the refusal cannot come from a wrong secret."""
+        from poorman_handshake import PasswordHandShake
+        return PasswordHandShake(password).generate_handshake()
 
-        Returns ``(master, satellite)``; the caller inspects the outcome and is
-        responsible for cleanup. Deliberately does not use
-        :meth:`TopologyBuilder.start_all`, which retries a failed handshake and
-        would mask a refusal behind a second, unrelated error.
-        """
+    def test_a_legacy_password_handshake_is_refused(self, monkeypatch):
         master = MasterNode.create("M0")
         satellite = SatelliteNode.create("S0")
-        satellite._master = master
-        master.register_satellite(key=satellite.identity.access_key,
-                                  password=satellite.identity.password)
-        master.network_protocol.connect_satellite(satellite=satellite)
-        return master, satellite
-
-    def test_handshake_below_the_floor_is_refused(self, monkeypatch):
-        # Floor v3: the satellite is v3-capable (it has a password) but the
-        # in-process shim only ever performs the legacy v2 handshake, so the
-        # version it completes at is below the floor and MUST be refused.
-        _override_server_config(monkeypatch, min_protocol_version=3)
-        master, satellite = self._attempt_legacy_handshake()
         try:
-            assert not satellite.shim.handshake_event.is_set(), (
-                "a handshake completing below the configured "
-                "min_protocol_version MUST be refused, but it succeeded — "
-                "the protocol floor is advisory again (CRYPTO-1 §3.1)"
-            )
-            assert master.hm_protocol.clients == {}, (
-                "a peer refused for being below the protocol floor MUST NOT be "
-                f"registered; clients={list(master.hm_protocol.clients)}"
-            )
+            satellite.connect(master)
+            conn = master.hm_protocol.clients[satellite.peer]
+            dropped = []
+            monkeypatch.setattr(conn, "disconnect",
+                                lambda *a, **k: dropped.append((a, k)))
+
+            master.hm_protocol.handle_handshake_message(
+                HiveMessage(HiveMessageType.HANDSHAKE,
+                            {"envelope": self._v2_envelope(
+                                satellite.identity.password)}),
+                conn)
+
+            assert dropped, (
+                "a legacy v2 password HANDSHAKE MUST be refused on a v3 node: "
+                "CRYPTO-1 §3 allows no alternative key derivation")
         finally:
             master.cleanup()
             satellite.cleanup()
 
-    def test_handshake_at_the_floor_is_admitted(self, monkeypatch):
-        # The control for the test above: same satellite, same legacy v2
-        # handshake, floor lowered to v2. Without this, a refusal caused by
-        # anything at all would read as conformance.
-        _override_server_config(monkeypatch, min_protocol_version=2)
-        master, satellite = self._attempt_legacy_handshake()
+    def test_the_noise_handshake_is_admitted(self):
+        # The control for the test above: the same pair of nodes completes
+        # the Noise handshake, so a refusal caused by anything else cannot
+        # read as conformance.
+        master = MasterNode.create("M0")
+        satellite = SatelliteNode.create("S0")
         try:
-            assert satellite.shim.handshake_event.is_set(), (
-                "a handshake AT the configured floor must be admitted"
-            )
+            satellite.connect(master)
+            assert satellite.shim.handshake_event.is_set()
             assert satellite.peer in master.hm_protocol.clients
+            assert master.hm_protocol.clients[satellite.peer].noise_transport is not None
         finally:
             master.cleanup()
             satellite.cleanup()
@@ -1160,14 +1151,16 @@ class TestNoiseTransportReplayResistance:
 
 
 class TestSessionCipherIntegrity:
-    """CRYPTO-1 §4 — the AEAD tag provides integrity: a receiver MUST reject
-    any message whose authentication tag does not verify. A node that
-    advertised ``crypto_required`` MUST drop any unencrypted message received
-    after the handshake.
+    """CRYPTO-1 §3.5 — 'The AEAD tag provides integrity: a receiver MUST reject
+    any message whose authentication tag does not verify', and after Split()
+    'a peer MUST reject any message that is not a valid Noise transport
+    message. There is no cleartext session.'
 
     Asserted on a real, handshaken master↔satellite connection through
-    ``HiveMindClientConnection.decode`` — the server's actual ingress path.
-    Each test owns its topology because a rejected frame disconnects the peer.
+    ``HiveMindClientConnection.decode``, the server's actual ingress path. The
+    frames are encrypted with the satellite's own Noise transport, as the
+    satellite would send them. Each test owns its topology because a
+    rejected frame disconnects the peer.
     """
 
     @staticmethod
@@ -1177,59 +1170,54 @@ class TestSessionCipherIntegrity:
         b.add_satellite("S0", upstream=b.get_master("M0"))
         b.start_all()
         m0 = b.get_master("M0")
-        conn = m0.hm_protocol.clients[b.get_satellite("S0").peer]
-        return b, conn
+        s0 = b.get_satellite("S0")
+        conn = m0.hm_protocol.clients[s0.peer]
+        assert conn.noise_transport is not None and s0.shim.noise_transport is not None, \
+            "precondition: the Noise session must be established"
+        return b, s0, conn
 
     @staticmethod
-    def _encrypted_bus(conn):
-        from hivemind_bus_client.encryption import encrypt_as_json
+    def _encrypted_bus(s0) -> bytes:
         bus = HiveMessage(HiveMessageType.BUS,
                           payload=Message("test.event", {"ok": True}))
-        return encrypt_as_json(key=conn.crypto_key, plaintext=bus.serialize(),
-                               cipher=conn.cipher, encoding=conn.encoding)
+        return s0.shim.noise_transport.encrypt_frame(bus.serialize())
 
     def test_message_with_a_broken_aead_tag_is_rejected(self):
-        """CRYPTO-1 §4 — a receiver MUST reject any message whose
-        authentication tag does not verify."""
-        import json as _json
-
-        b, conn = self._connected()
+        """CRYPTO-1 §3.5 — a receiver MUST reject any message whose
+        authentication tag does not verify. The tag is the last 16 bytes of a
+        Noise transport message."""
+        b, s0, conn = self._connected()
         try:
-            good = self._encrypted_bus(conn)
+            good = self._encrypted_bus(s0)
             assert conn.decode(good).msg_type == HiveMessageType.BUS, \
                 "precondition: an intact encrypted BUS must decode"
 
-            forged = _json.loads(self._encrypted_bus(conn))
-            forged["tag"] = ("00" * (len(forged["tag"]) // 2)
-                             if forged["tag"] != "00" * (len(forged["tag"]) // 2)
-                             else "11" * (len(forged["tag"]) // 2))
-            with pytest.raises(Exception):
-                conn.decode(_json.dumps(forged))
+            forged = bytearray(self._encrypted_bus(s0))
+            forged[-1] ^= 0x01
+            with pytest.raises(core_protocol.NoiseTransportFailed):
+                conn.decode(bytes(forged))
         finally:
             b.stop_all()
 
     def test_tampered_ciphertext_is_rejected(self):
-        """CRYPTO-1 §4 — integrity covers the body too: an edited ciphertext
+        """CRYPTO-1 §3.5 — integrity covers the body too: an edited ciphertext
         must not decode into a message the server then acts on."""
-        import json as _json
-
-        b, conn = self._connected()
+        b, s0, conn = self._connected()
         try:
-            forged = _json.loads(self._encrypted_bus(conn))
-            body = forged["ciphertext"]
-            forged["ciphertext"] = body[:-2] + ("aa" if body[-2:] != "aa" else "bb")
-            with pytest.raises(Exception):
-                conn.decode(_json.dumps(forged))
+            forged = bytearray(self._encrypted_bus(s0))
+            forged[len(forged) // 2] ^= 0x01
+            with pytest.raises(core_protocol.NoiseTransportFailed):
+                conn.decode(bytes(forged))
         finally:
             b.stop_all()
 
     def test_unencrypted_message_is_dropped_when_crypto_is_required(self):
-        """CRYPTO-1 §4 / §3.3 — a node that advertised ``crypto_required``
-        MUST drop any unencrypted message received after the handshake."""
-        b, conn = self._connected()
+        """CRYPTO-1 §3.5 — the session is always encrypted: an unencrypted
+        message received after the handshake MUST be dropped."""
+        b, s0, conn = self._connected()
         try:
             assert conn.crypto_required, \
-                "precondition: the harness master must require crypto"
+                "precondition: a v3 connection always requires crypto"
             cleartext = HiveMessage(HiveMessageType.BUS,
                                     payload=Message("test.event", {})).serialize()
             with pytest.raises(Exception):
@@ -1237,18 +1225,20 @@ class TestSessionCipherIntegrity:
         finally:
             b.stop_all()
 
-    def test_key_establishment_messages_stay_readable_in_the_clear(self):
-        """CRYPTO-1 §4 — the drop applies to traffic *after* the handshake:
-        HELLO and HANDSHAKE precede the session key and MUST remain accepted in
-        the clear, or no connection could ever be established."""
-        b, conn = self._connected()
-        try:
-            for msg_type in (HiveMessageType.HELLO, HiveMessageType.HANDSHAKE):
+    def test_key_establishment_messages_are_refused_in_the_clear_after_split(self):
+        """CRYPTO-1 §3.5 — HELLO and HANDSHAKE are exempt only BEFORE Split().
+        After it, "a peer MUST reject any message that is not a valid Noise
+        transport message", key-establishment types included. (Protocol v2
+        kept accepting them in the clear for the whole session; this test
+        used to pin that.)"""
+        for msg_type in (HiveMessageType.HELLO, HiveMessageType.HANDSHAKE):
+            b, s0, conn = self._connected()
+            try:
                 cleartext = HiveMessage(msg_type, payload={"noop": True}).serialize()
-                assert conn.decode(cleartext).msg_type == msg_type, \
-                    f"cleartext {msg_type} must remain accepted"
-        finally:
-            b.stop_all()
+                with pytest.raises(core_protocol.NoiseTransportFailed):
+                    conn.decode(cleartext)
+            finally:
+                b.stop_all()
 
 
 class TestPrivateKeyIsNeverTransmitted:
@@ -1388,86 +1378,6 @@ class TestIntercomHasNoBinaryEncoding:
         assert decoded.payload == payload
 
 
-class TestProtocolFloorOnPerformedVersion:
-    """CRYPTO-1 §3.1 — the ``min_protocol_version`` floor is enforced against
-    the handshake a client actually COMPLETES, not the one it advertised it
-    could do.
-
-    The HELLO-time check only rejects a client that cannot reach the floor at
-    all (``min_version > max_version``). A v3-capable client — one with a
-    password handshake, so the server offered it Noise — can still answer with
-    a legacy v2 password envelope. If the floor were only checked at HELLO,
-    that client would silently downgrade itself past a floor of 3 and the
-    operator's crypto requirement would be a no-op (hivemind-core#165).
-    """
-
-    def _v2_envelope(self, password: str):
-        """A genuine v2 password-handshake envelope built with ``password`` —
-        one the server WOULD accept if the floor were not enforced, so this
-        test fails for the right reason if the check is removed."""
-        from poorman_handshake import PasswordHandShake
-        return PasswordHandShake(password).generate_handshake()
-
-    def test_v2_handshake_is_refused_under_a_floor_of_v3(self, minimal_topology,
-                                                         monkeypatch):
-        from hivemind_core import protocol as core_protocol
-
-        b = minimal_topology
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
-        conn = m0.hm_protocol.clients[s0.peer]
-
-        # This connection is v3-capable: it has a password handshake, which is
-        # exactly what makes the downgrade possible.
-        assert conn.pswd_handshake is not None, \
-            "precondition: the connection must be able to offer protocol v3"
-        password = conn.pswd_handshake.password
-
-        monkeypatch.setattr(core_protocol, "get_server_config",
-                            lambda: {"min_protocol_version": 3})
-
-        dropped = []
-        monkeypatch.setattr(conn, "disconnect", lambda *a, **k: dropped.append(True))
-        conn.crypto_key = None
-
-        m0.hm_protocol.handle_handshake_message(
-            HiveMessage(HiveMessageType.HANDSHAKE,
-                        {"envelope": self._v2_envelope(password)}),
-            conn)
-
-        assert dropped, ("a v2 password handshake under a v3 floor MUST be "
-                         "refused, not silently completed")
-        assert conn.crypto_key is None, \
-            "the refused handshake must not have derived a session key"
-
-    def test_v2_handshake_is_accepted_under_a_floor_of_v2(self, minimal_topology,
-                                                          monkeypatch):
-        """The other half of the same clause: the floor refuses a downgrade,
-        it does not refuse everything."""
-        from hivemind_core import protocol as core_protocol
-
-        b = minimal_topology
-        m0 = b.get_master("M0")
-        s0 = b.get_satellite("S0")
-        conn = m0.hm_protocol.clients[s0.peer]
-        password = conn.pswd_handshake.password
-
-        monkeypatch.setattr(core_protocol, "get_server_config",
-                            lambda: {"min_protocol_version": 2})
-
-        dropped = []
-        monkeypatch.setattr(conn, "disconnect", lambda *a, **k: dropped.append(True))
-        conn.crypto_key = None
-
-        m0.hm_protocol.handle_handshake_message(
-            HiveMessage(HiveMessageType.HANDSHAKE,
-                        {"envelope": self._v2_envelope(password)}),
-            conn)
-
-        assert not dropped, "a v2 handshake at a v2 floor must be accepted"
-        assert conn.crypto_key, "an accepted v2 handshake must derive a session key"
-
-
 class TestTofuPinIsNotMovedByALaterHello:
     """CRYPTO-1 §5 — the first public key seen for an access key becomes the
     trust anchor for INTERCOM origin verification. A later HELLO presenting a
@@ -1531,14 +1441,16 @@ class TestTofuPinIsNotMovedByALaterHello:
 
 
 class TestIntercomRefusedWhenCryptoRequired:
-    """CRYPTO-1 §5 — an INTERCOM carries an end-to-end encrypted envelope with
-    an origin signature. A node that requires crypto MUST refuse an INTERCOM
-    that arrives without one — a plain dict or an already-decoded HiveMessage
-    carries no proof of origin at all (hivemind-core#169).
+    """CRYPTO-1 §4 — an INTERCOM carries an end-to-end encrypted envelope with
+    an origin signature. Where an implementation also accepts a plaintext or
+    already-decoded envelope, "those forms carry no origin proof at all and a
+    node MUST refuse them" (hivemind-core#169).
 
-    The permissive form (``require_crypto=False``) is what the rest of the
-    suite covers; the refusal is the security control, so it gets its own
-    positive/negative pair here.
+    Protocol v3 has no permissive ``require_crypto=False`` mode any more
+    (CRYPTO-1 §3.5: "The session is always encrypted"), so the refusal holds
+    on every node. The control is a plain BUS utterance on the same kind of
+    connection, which is delivered, so the refusal cannot come from a broken
+    delivery path.
     """
 
     def _plaintext_intercom(self, target_pubkey):
@@ -1554,8 +1466,8 @@ class TestIntercomRefusedWhenCryptoRequired:
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
 
-        assert m0.hm_protocol.require_crypto, \
-            "precondition: this node advertises crypto_required"
+        assert m0.hm_protocol.clients[s0.peer].crypto_required, \
+            "precondition: the v3 session requires crypto"
 
         s0.send(self._plaintext_intercom(m0.identity.public_key))
 
@@ -1577,24 +1489,26 @@ class TestIntercomRefusedWhenCryptoRequired:
         assert consumed is True, \
             "a refused INTERCOM must be consumed, not relayed further"
 
-    def test_plaintext_intercom_is_delivered_when_crypto_is_not_required(self):
-        """The same frame on a permissive node still delivers — proving the
-        test above fails on the refusal, not on some unrelated breakage."""
+    def test_a_plain_bus_utterance_is_still_delivered(self):
+        """The control: the same satellite and master deliver an ordinary BUS
+        utterance, so the refusal above is the INTERCOM rule and not some
+        unrelated breakage."""
         b = TopologyBuilder()
         try:
-            b.add_master("M0", require_crypto=False)
+            b.add_master("M0")
             b.add_satellite("S0", upstream=b.get_master("M0"),
                             allowed_types=["recognizer_loop:utterance"])
             b.start_all()
             m0 = b.get_master("M0")
             s0 = b.get_satellite("S0")
 
-            s0.send(self._plaintext_intercom(m0.identity.public_key))
+            s0.send(Message("recognizer_loop:utterance",
+                            {"utterances": ["unsigned"]}))
 
             poll_until(
                 lambda: m0.agent_protocol.last_injected("recognizer_loop:utterance"),
                 timeout=3,
-                message="a permissive node must still deliver a plaintext INTERCOM")
+                message="a plain BUS utterance must still be delivered")
         finally:
             b.stop_all()
 
@@ -1669,7 +1583,7 @@ class TestKeyEstablishmentMessageGate:
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
         conn = m0.hm_protocol.clients[s0.peer]
-        conn.crypto_key = None  # pre-key-establishment state
+        conn.noise_transport = None  # pre-Split() state
 
         for msg_type in (HiveMessageType.HELLO, HiveMessageType.HANDSHAKE):
             frame = json.dumps({"msg_type": msg_type.value, "payload": {}})
@@ -1685,7 +1599,7 @@ class TestKeyEstablishmentMessageGate:
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
         conn = m0.hm_protocol.clients[s0.peer]
-        conn.crypto_key = None
+        conn.noise_transport = None  # pre-Split() state
 
         frame = json.dumps({"msg_type": HiveMessageType.BUS.value,
                             "payload": Message("recognizer_loop:utterance",

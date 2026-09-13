@@ -107,30 +107,27 @@ class TestUnknownMsgTypeIsUnroutable:
         """End-to-end: the master's own decoder refuses the frame, so the
         payload never reaches the agent bus.
 
-        The frame is properly encrypted for this connection on purpose. A
-        cleartext frame would be refused by the ``crypto_required`` guard
-        instead, and the test would pass without the unknown-type rule
-        existing at all.
+        The frame is properly encrypted for this connection on purpose: it is
+        a Noise transport message sealed with the satellite's own transport,
+        as the satellite would send it. A cleartext frame would be refused by
+        the post-Split() guard instead (CRYPTO-1 §3.5), and the test would
+        pass without the unknown-type rule existing at all.
         """
         import json
-
-        from hivemind_bus_client.encryption import encrypt_as_json
 
         b = minimal_topology
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
         conn = m0.hm_protocol.clients[s0.peer]
-        assert conn.crypto_key, "precondition: the session key must be established"
+        assert conn.noise_transport is not None and s0.shim.noise_transport is not None, \
+            "precondition: the Noise session must be established"
 
-        frame = encrypt_as_json(
-            key=conn.crypto_key,
-            plaintext=json.dumps({
-                "msg_type": "totally-made-up",
-                "payload": {"type": UTTERANCE,
-                            "data": {"utterances": ["interpret me"]},
-                            "context": {}},
-            }),
-            cipher=conn.cipher, encoding=conn.encoding)
+        frame = s0.shim.noise_transport.encrypt_frame(json.dumps({
+            "msg_type": "totally-made-up",
+            "payload": {"type": UTTERANCE,
+                        "data": {"utterances": ["interpret me"]},
+                        "context": {}},
+        }))
 
         with pytest.raises(ValueError, match="Unknown HiveMessage.msg_type"):
             conn.decode(frame)

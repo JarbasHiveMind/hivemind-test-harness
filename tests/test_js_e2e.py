@@ -33,6 +33,16 @@ def _node_prereq() -> str:
                            capture_output=True, text=True)
     if probe.returncode != 0:
         return "the Node `ws` package is not installed (run `npm install ws`)"
+    # hivemind.js needs @noble for the protocol v3 handshake: argon2id derives
+    # the Noise PSK from the password. Without it the client cannot complete
+    # the handshake, and hivemind-core 5.x refuses the connection.
+    noble = subprocess.run(
+        ["node", "-e", "require('@noble/hashes/argon2.js'); require('@noble/ciphers/chacha.js')"],
+        cwd=str(Path(__file__).resolve().parent.parent),
+        capture_output=True, text=True, check=False)
+    if noble.returncode != 0:
+        return ("the Node `@noble/hashes` and `@noble/ciphers` packages are not "
+                "installed (run `npm install @noble/hashes @noble/ciphers`)")
     return ""
 
 
