@@ -34,7 +34,9 @@ from tests.conftest import (
 # tight for this module.
 pytestmark = pytest.mark.timeout(300)
 
-ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
+# ovos-skill-hello-world 0.2.8a2 moved HelloWorldIntent from an Adapt
+# IntentBuilder to HelloWorldIntent.intent, so only Padatious matches it.
+HELLO_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 PADATIOUS_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 
 
@@ -80,7 +82,7 @@ class TestLangPropagation:
         cap = open_capture(agent)
         # Send with explicit lang — even if no de-de intent exists,
         # we verify the lang arrives at the hub
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id,
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id,
                                 lang="en-US"))
         messages = cap.wait(timeout=60)
 
@@ -100,7 +102,7 @@ class TestSessionIdPreserved:
         """TS-SE-02 — response session_id round-trips the NATted Layer-1 id.
 
         HIVEMIND-BRIDGE-1 §4: a non-admin's declared session_id is namespaced
-        by the connection's nonce (f"{conn_nonce}:{declared_id}") before it
+        by the client's session namespace (f"{session_namespace}:{declared_id}") before it
         reaches the bus, so it is never preserved verbatim. What must hold is
         that the NATted id installed on injection is the same one that comes
         back on the response — i.e. the satellite's session round-trips
@@ -112,7 +114,7 @@ class TestSessionIdPreserved:
         m0 = b.get_master("M0")
 
         cap = open_capture(agent)
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
         speak = next((m for m in messages if m.msg_type == SpecMessage.SPEAK), None)
@@ -123,7 +125,9 @@ class TestSessionIdPreserved:
         assert_session_id_natted(m0, s0, s0.shim.session_id)
         # ... and that same NATted id is the one the response carries back.
         conn = m0.hm_protocol.clients[s0.peer]
-        expected_id = f"{conn.conn_nonce}:{s0.shim.session_id}"
+        # hivemind-core 5.x namespaces by the durable, identity-derived
+        # session_namespace, not the per-connection conn_nonce (BRIDGE-1 §4)
+        expected_id = f"{conn.session_namespace}:{s0.shim.session_id}"
         assert speak_session.get("session_id") == expected_id, (
             f"Session ID mismatch: expected NATted id {expected_id}, "
             f"got {speak_session.get('session_id')}"
@@ -135,18 +139,20 @@ class TestPipelineOverride:
     """TS-SE-03 — pipeline override through HiveMind."""
 
     def test_pipeline_override(self, session_topology):
-        """TS-SE-03 — padatious-only pipeline: adapt 'hello world' fails."""
+        """TS-SE-03 — adapt-only pipeline: the Padatious 'hello world' intent does not match."""
         b, agent = session_topology
         agent.clear()
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent)
-        s0.send(make_utterance("hello world", PADATIOUS_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("hello world", ["ovos-adapt-pipeline-plugin-high"],
+                               s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
-        # hello-world uses Adapt for "hello world" — padatious won't match
+        # hello-world ships "hello world" as a Padatious intent (0.2.8a2), so an
+        # adapt-only session pipeline must leave it unmatched
         assert any(m.msg_type == SpecMessage.INTENT_UNMATCHED for m in messages), (
-            f"Expected {SpecMessage.INTENT_UNMATCHED} with padatious-only pipeline.\n"
+            f"Expected {SpecMessage.INTENT_UNMATCHED} with adapt-only pipeline.\n"
             f"Captured: {[m.msg_type for m in messages]}"
         )
 
@@ -159,7 +165,7 @@ class TestMultiTurnSession:
         """TS-SE-04 — second utterance carries the same NATted session as the first.
 
         HIVEMIND-BRIDGE-1 §4 NATs the declared session_id to
-        f"{conn_nonce}:{declared_id}" before it reaches the bus, so continuity
+        f"{session_namespace}:{declared_id}" before it reaches the bus, so continuity
         across turns means the *NATted* id is stable, not the verbatim
         declared one (which is never installed on the bus in the first place).
         """
@@ -170,7 +176,7 @@ class TestMultiTurnSession:
 
         # First utterance
         cap1 = open_capture(agent)
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
         messages1 = cap1.wait(timeout=60)
         speak1 = next((m for m in messages1 if m.msg_type == SpecMessage.SPEAK), None)
         assert speak1 is not None, "First utterance did not produce speak"
@@ -179,16 +185,18 @@ class TestMultiTurnSession:
 
         # Second utterance with same session
         cap2 = open_capture(agent)
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
         messages2 = cap2.wait(timeout=60)
         speak2 = next((m for m in messages2 if m.msg_type == SpecMessage.SPEAK), None)
         assert speak2 is not None, "Second utterance did not produce speak"
 
         # Both turns land on the same NATted Layer-1 session — continuity
-        # holds under the connection's nonce, even though it is never the
+        # holds under the client's session namespace, even though it is never the
         # verbatim declared id.
         conn = m0.hm_protocol.clients[s0.peer]
-        expected_id = f"{conn.conn_nonce}:{s0.shim.session_id}"
+        # hivemind-core 5.x namespaces by the durable, identity-derived
+        # session_namespace, not the per-connection conn_nonce (BRIDGE-1 §4)
+        expected_id = f"{conn.session_namespace}:{s0.shim.session_id}"
         s1 = speak1.context.get("session", {}).get("session_id")
         s2 = speak2.context.get("session", {}).get("session_id")
         assert s1 == s2 == expected_id

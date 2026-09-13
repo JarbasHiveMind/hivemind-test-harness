@@ -95,63 +95,53 @@ class TestProtocolVersionRegistry:
         )
 
 
-class TestProtocolFloorJudgedOnCompletedHandshake:
-    """WIRE-1 §2 — 'A server MUST reject a handshake that completes below its
-    configured minimum protocol version.'
+class TestNoProtocolFloorOnlyNoise:
+    """WIRE-1 §2 — "There is no connection protocol-version ladder and no
+    version floor to negotiate — a connection either establishes the Noise
+    session or it does not."
 
-    The subtle part, and the reason this needs a test: the capability check at
-    HELLO time (``min_version > max_version`` in ``handle_new_client``) only
-    refuses a client that *cannot* reach the floor. A password-capable client
-    advertises v3 capability and so passes that check, then completes a legacy
-    v2 password handshake instead — silently under the floor. hivemind-core
-    closes this in ``handle_handshake_message`` by judging the version actually
-    performed. Nothing pinned it.
+    This class used to pin that a password client, admitted on its declared v3
+    capability, was still refused when it completed a legacy v2 password
+    handshake under ``min_protocol_version=3``. Protocol v3 removed the floor
+    setting and the v2 handshake together, so the silent downgrade cannot
+    happen under any configuration. What is pinned instead: the legacy
+    envelope is refused outright, and the Noise handshake completes.
     """
 
-    def _floor(self, monkeypatch, version: int):
-        """Force the operator-configured protocol floor to ``version``."""
-        import hivemind_core.protocol as core_protocol
-        monkeypatch.setattr(core_protocol, "get_server_config",
-                            lambda: {"min_protocol_version": version})
+    def test_a_legacy_password_handshake_is_refused(self, monkeypatch):
+        from poorman_handshake import PasswordHandShake
 
-    def test_password_handshake_below_floor_is_refused(self, monkeypatch):
-        # Floor 3 (Noise only). A password client is v3-*capable*, so the
-        # HELLO-time capability check lets it in, but the legacy password
-        # handshake it actually performs is v2 and MUST be refused.
-        self._floor(monkeypatch, 3)
         master = MasterNode.create("M_floor3")
         sat = SatelliteNode.create("S_floor3")
         try:
-            # The server refuses the sub-floor handshake by dropping the
-            # connection, so connect() cannot complete. The exact exception is
-            # an artefact of *where* the teardown lands; the conformance
-            # assertions below are on the observable end state.
-            with pytest.raises(RuntimeError):
-                sat.connect(master)
+            sat.connect(master)
+            conn = master.hm_protocol.clients[sat.peer]
+            dropped = []
+            monkeypatch.setattr(conn, "disconnect",
+                                lambda *a, **k: dropped.append((a, k)))
 
-            assert not sat.shim.handshake_event.is_set(), (
-                "a handshake performed below the configured protocol floor "
-                "MUST NOT complete")
-            assert master.hm_protocol.clients == {}, (
-                "a client refused for being below the protocol floor MUST NOT "
-                "be left registered and reachable")
-            assert sat._connection is None or not sat._connection.crypto_key, (
-                "a refused handshake MUST NOT leave a usable session key behind")
+            envelope = PasswordHandShake(sat.identity.password).generate_handshake()
+            master.hm_protocol.handle_handshake_message(
+                HiveMessage(HiveMessageType.HANDSHAKE, {"envelope": envelope}),
+                conn)
+
+            assert dropped, (
+                "a legacy v2 password handshake MUST be refused: WIRE-1 §2 "
+                "leaves no version to fall back to")
         finally:
             sat.cleanup()
             master.cleanup()
 
-    def test_password_handshake_at_or_above_floor_completes(self, monkeypatch):
-        # Control: the same connection at floor 2 completes. Without this the
-        # test above would also pass if connect() were broken for any reason.
-        self._floor(monkeypatch, 2)
+    def test_the_noise_handshake_completes(self):
+        # Control: the Noise handshake, the only one there is, completes.
+        # Without this the test above would also pass if connect() were broken.
         master = MasterNode.create("M_floor2")
         sat = SatelliteNode.create("S_floor2")
         try:
             sat.connect(master)
             assert sat.shim.handshake_event.is_set()
-            assert sat._connection.crypto_key, (
-                "a handshake at the configured floor must establish a session key")
+            assert master.hm_protocol.clients[sat.peer].noise_transport is not None, (
+                "the completed handshake must establish a Noise session")
         finally:
             sat.cleanup()
             master.cleanup()

@@ -34,7 +34,9 @@ from tests.conftest import (
 # tight for this module.
 pytestmark = pytest.mark.timeout(300)
 
-ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
+# ovos-skill-hello-world 0.2.8a2 moved HelloWorldIntent from an Adapt
+# IntentBuilder to HelloWorldIntent.intent, so only Padatious matches it.
+HELLO_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
     "ovos-padatious-pipeline-plugin-high",
@@ -101,7 +103,7 @@ class TestResponseIsolation:
         s2.internal_bus.once(SpecMessage.SPEAK, lambda m: s2_speak.append(m))
 
         cap = open_capture(agent)
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
         cap.wait(timeout=15)
 
         s0_evt.wait(timeout=10)
@@ -133,8 +135,8 @@ class TestConcurrentUtterances:
         s1.internal_bus.once(SpecMessage.SPEAK, lambda m: (s1_speak.append(m), s1_evt.set()))
 
         # Send from both satellites
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
-        s1.send(make_utterance("hello world", ADAPT_PIPELINE, s1.shim.session_id))
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
+        s1.send(make_utterance("hello world", HELLO_PIPELINE, s1.shim.session_id))
 
         s0_evt.wait(timeout=15)
         s1_evt.wait(timeout=15)

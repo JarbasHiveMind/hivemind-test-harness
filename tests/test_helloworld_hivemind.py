@@ -21,8 +21,8 @@ sequence on the skill bus is identical to what the upstream tests assert.
 
 Test IDs
 --------
-TS-HW-01   adapt pipeline: "hello world" → HelloWorldIntent → speak
-TS-HW-02   padatious pipeline: "hello world" → ovos.intent.unmatched
+TS-HW-01   padatious pipeline: "hello world" → HelloWorldIntent → speak
+TS-HW-02   adapt pipeline: "hello world" → ovos.intent.unmatched
 TS-HW-03   padatious pipeline: "good morning" → Greetings intent → speak
 TS-HW-04   adapt pipeline: "good morning" → ovos.intent.unmatched
 TS-HW-05   speak from hello-world routes back to satellite via HiveMind
@@ -148,14 +148,16 @@ def hw_topology():
 
 
 # ---------------------------------------------------------------------------
-# TS-HW-01  adapt pipeline: "hello world" → HelloWorldIntent → speak
+# TS-HW-01  padatious pipeline: "hello world" → HelloWorldIntent → speak
+# (ovos-skill-hello-world 0.2.8a2 moved HelloWorldIntent from an Adapt
+# IntentBuilder to HelloWorldIntent.intent)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(_skill_missing(), reason=f"{SKILL_ID} not installed")
 class TestAdaptIntentViaHiveMind:
-    """TS-HW-01 — adapt pipeline matches 'hello world' through HiveMind routing."""
+    """TS-HW-01 — padatious pipeline matches 'hello world' through HiveMind routing."""
 
-    PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
+    PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 
     def test_utterance_delivered_to_skill_bus(self, hw_topology):
         b, agent = hw_topology
@@ -246,17 +248,17 @@ class TestAdaptIntentViaHiveMind:
 
 
 # ---------------------------------------------------------------------------
-# TS-HW-02  padatious pipeline: "hello world" → ovos.intent.unmatched
+# TS-HW-02  adapt pipeline: "hello world" → ovos.intent.unmatched
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(_skill_missing(), reason=f"{SKILL_ID} not installed")
 class TestAdaptUtterancePadatiousPipelineViaHiveMind:
     """
-    TS-HW-02 — 'hello world' via padatious pipeline → ovos.intent.unmatched.
-    hello-world uses Adapt for 'hello world'; padatious won't match it.
+    TS-HW-02 — 'hello world' via adapt pipeline → ovos.intent.unmatched.
+    hello-world ships 'hello world' as a Padatious intent (0.2.8a2); adapt won't match it.
     """
 
-    PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
+    PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
 
     def test_intent_unmatched_emitted(self, hw_topology):
         b, agent = hw_topology
@@ -426,7 +428,7 @@ class TestSpeakPropagatesBackToSatellite:
     Implements TS-OVO-04 with the hello-world skill as the concrete scenario.
     """
 
-    PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
+    PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 
     def test_speak_received_on_satellite_bus(self, hw_topology):
         b, agent = hw_topology

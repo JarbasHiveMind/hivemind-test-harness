@@ -4,8 +4,8 @@
  * @description Node.js E2E test driver for HiveMind JavaScript client.
  *
  * Uses the actual JarbasHiveMind client from HiveMind-js to connect, perform
- * the full V1 handshake (password-based key derivation), send an encrypted
- * utterance, and exit.
+ * the protocol v3 Noise handshake (the PSK is derived from the password with
+ * argon2id, which needs @noble/hashes), send an encrypted utterance, and exit.
  *
  * Usage:
  *   node js_e2e_driver.mjs <hub_url> <name> <key> <password> <utterance>

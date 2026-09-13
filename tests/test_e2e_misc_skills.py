@@ -46,7 +46,9 @@ DEFAULT_PIPELINE = [
     "ovos-fallback-pipeline-plugin-low",
 ]
 
-ADAPT_PIPELINE = ["ovos-adapt-pipeline-plugin-high"]
+# ovos-skill-hello-world 0.2.8a2 moved HelloWorldIntent from an Adapt
+# IntentBuilder to HelloWorldIntent.intent, so only Padatious matches it.
+HELLO_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 
 
 @pytest.fixture(scope="module")
@@ -193,7 +195,7 @@ class TestEdgeCases:
 
         agent.clear()
         cap = open_capture(agent)
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
         follow_up = cap.wait(timeout=15)
         cap.assert_complete()
         assert any(m.msg_type == SpecMessage.SPEAK for m in follow_up), (
@@ -209,7 +211,7 @@ class TestEdgeCases:
 
         from ovos_bus_client.session import Session
         sess = Session(s0.shim.session_id)
-        sess.pipeline = ADAPT_PIPELINE
+        sess.pipeline = HELLO_PIPELINE
         msg = Message(
             "recognizer_loop:utterance",
             {"utterances": ["hello world", "hello word", "jello world"], "lang": "en-US"},
@@ -235,7 +237,7 @@ class TestEdgeCases:
 
         # Send 3 utterances rapidly
         for text in ["hello world", "hello world", "hello world"]:
-            s0.send(make_utterance(text, ADAPT_PIPELINE, s0.shim.session_id))
+            s0.send(make_utterance(text, HELLO_PIPELINE, s0.shim.session_id))
 
         # Poll for the first speak instead of sleeping a fixed 5s: fast when the
         # skill answers quickly, and it raises (not silently passes) if no speak
@@ -265,5 +267,5 @@ class TestEdgeCases:
         assert s0.peer in m0.hm_protocol.clients, \
             "An unknown message type must not disconnect the satellite"
         agent.clear()
-        s0.send(make_utterance("hello world", ADAPT_PIPELINE, s0.shim.session_id))
+        s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
         agent.wait_for_skill_emission("ovos.utterance.handled", timeout=30)
