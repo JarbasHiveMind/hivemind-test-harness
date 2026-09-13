@@ -9,20 +9,26 @@ Pinned here:
 
   * CRYPTO-1 §2     — the protocol-v3 static X25519 key pair is persisted and
                       reloaded, so a node keeps one long-lived Noise identity
-  * CRYPTO-1 §3.2   — the password verifier is checked at handshake time and a
-                      failure is fatal: no session key, no registered client
-  * CRYPTO-1 §3.3   — a pre-shared key lets a node skip the handshake, and the
-                      server says so in its advertised parameter set
+  * CRYPTO-1 §3.3   — a wrong password fails cryptographically at handshake
+                      time and a failure is fatal: no Noise session, no
+                      registered client
+  * CRYPTO-1 §3     — the handshake is mandatory; there is no pre-shared-key
+                      alternative, and the server advertises only Noise
   * CRYPTO-1 §3.4.3 — a node selects its pattern/suite only from what the
                       server offered, and the server refuses a selection it
                       never offered (including KKpsk0 without a pinned key)
   * CRYPTO-1 §3.4.4 — the Noise PSK is 32 bytes and derived deterministically
                       from (password, server node id)
-  * CRYPTO-1 §4     — AEAD negotiation picks the most-preferred cipher both
-                      peers support, and refuses when there is no overlap
   * CRYPTO-1 §4     — a fresh, unique nonce per message, at the deployed sizes
-  * CRYPTO-1 §4     — the v2 session key is ephemeral: a reconnection derives
-                      a new one
+  * CRYPTO-1 §3.5   — the session keys are ephemeral: a reconnection runs a
+                      fresh handshake and derives new ones
+
+Retired with protocol v3 (hivemind-core 5.x): the v2 password-handshake AEAD
+negotiation (CRYPTO-1 §3 — Noise "is the single key-exchange mechanism"; the
+suite is selected from the server's offer, §3.1-§3.3, pinned in
+``TestNodeSelectsOnlyFromWhatTheServerOffered``) and the pre-shared-key skip
+(CRYPTO-1 §3 — "there is no cleartext, pre-shared-key, or password
+alternative").
 
 Deliberately NOT re-pinned here (already covered): the §3.1 protocol floor and
 §5 INTERCOM rules (``test_spec_musts.py``), the §3.4.2/§3.4.5 Noise patterns,
@@ -80,15 +86,16 @@ def _attempt_password_handshake(master_password, satellite=None):
 
 
 class TestPasswordVerifierIsCheckedAtHandshakeTime:
-    """CRYPTO-1 §3.2 — the password handshake is the baseline authentication,
-    an explicit verifier reject at handshake time is RECOMMENDED, and
-    'authentication failure is fatal'.
+    """CRYPTO-1 §3.3 — 'A wrong password fails cryptographically at handshake
+    time, not as a decrypt error on the first application frame', and an
+    authentication failure at any Noise step is fatal.
 
-    Without the explicit reject, a wrong password only surfaced later as a
-    decrypt failure on the first encrypted frame — by which time the peer is
-    registered, has a routing entry, and has been announced to the agent. The
-    negative case below is the whole point; the positive case is its control,
-    so a refusal caused by anything else cannot read as conformance.
+    The password enters the handshake only as the Noise PSK (§3.4), so a
+    mismatch aborts the handshake. If it did not, the peer would be
+    registered, have a routing entry, and be announced to the agent before
+    the failure showed. The negative case below is the whole point; the
+    positive case is its control, so a refusal caused by anything else cannot
+    read as conformance.
     """
 
     def test_a_wrong_password_leaves_no_session_and_no_client(self):
@@ -100,8 +107,10 @@ class TestPasswordVerifierIsCheckedAtHandshakeTime:
                 "an unauthenticated peer MUST NOT be registered; "
                 f"clients={list(master.hm_protocol.clients)}")
             conn = satellite._connection
-            assert conn is None or conn.crypto_key is None, (
-                "no session key may be derived for a failed authentication")
+            assert conn is None or conn.noise_transport is None, (
+                "no Noise session may be established for a failed authentication")
+            assert satellite.shim.noise_transport is None, (
+                "the node MUST NOT hold a Noise session after a failed authentication")
         finally:
             master.cleanup()
             satellite.cleanup()
@@ -113,20 +122,20 @@ class TestPasswordVerifierIsCheckedAtHandshakeTime:
         try:
             assert satellite.shim.handshake_event.is_set()
             assert satellite.peer in master.hm_protocol.clients
-            assert master.hm_protocol.clients[satellite.peer].crypto_key, (
-                "a successful password handshake must derive a session key")
+            assert master.hm_protocol.clients[satellite.peer].noise_transport, (
+                "a successful handshake must establish a Noise session")
         finally:
             master.cleanup()
             satellite.cleanup()
 
 
 class TestSessionKeyIsEphemeral:
-    """CRYPTO-1 §4 — 'the session key is ephemeral; a fresh key is derived on
-    reconnection.'
+    """CRYPTO-1 §3.5 — 'The session keys are ephemeral: they live only for the
+    duration of the connection, and a reconnection runs a fresh handshake.'
 
     A session key that survived a reconnection would make every future session
-    decryptable from one recorded compromise, and would defeat the per-
-    connection ``HandShake`` the code creates in ``__post_init__``.
+    decryptable from one recorded compromise. The handshake hash ``h`` binds
+    the ephemeral keys of one handshake, so a fresh handshake gives a new one.
     """
 
     def test_reconnecting_derives_a_different_session_key(self):
@@ -134,20 +143,36 @@ class TestSessionKeyIsEphemeral:
         satellite = SatelliteNode.create("S0")
         try:
             satellite.connect(master)
-            first = master.hm_protocol.clients[satellite.peer].crypto_key
-            assert first
+            first = master.hm_protocol.clients[satellite.peer].noise_transport
+            assert first is not None and first.handshake_hash
 
             # The same peer identity connects again — same access key, same
             # password, same session id. Only the connection is new, which is
-            # exactly the case a surviving key would go unnoticed in.
-            master.network_protocol.connect_satellite(satellite=satellite)
-            satellite.slave_protocol.start_handshake()
-            second = master.hm_protocol.clients[satellite.peer].crypto_key
-            assert second
+            # exactly the case a surviving key would go unnoticed in. The
+            # first connection is closed first, as a real reconnect does.
+            satellite.disconnect()
+            assert satellite.peer not in master.hm_protocol.clients
+            # The in-process shim has no socket close, so reset what the real
+            # client resets when its connection closes
+            # (HiveMessageBusClient._clear_connection_state).
+            satellite.shim.noise_transport = None
+            satellite.shim.handshake_event.clear()
+            satellite.slave_protocol.reset_connection_state()
+            # Forget the pinned server key so the reconnection runs XXpsk2
+            # again. A pinned key would select KKpsk0, which the in-process
+            # shim does not complete; freshness is the same for either pattern.
+            identity = satellite.slave_protocol.identity
+            for pin_id in list(identity.pinned_noise_keys):
+                identity.forget_noise_key(pin_id)
+            satellite.connect(master)
+            assert satellite.shim.handshake_event.is_set(), (
+                "the reconnection must complete its own handshake")
+            second = master.hm_protocol.clients[satellite.peer].noise_transport
+            assert second is not None and second.handshake_hash
 
-            assert first != second, (
-                "the v2 session key MUST be derived fresh per connection; the "
-                "reconnection reused the previous key, so one recorded "
+            assert first.handshake_hash != second.handshake_hash, (
+                "the session keys MUST be derived fresh per connection; the "
+                "reconnection reused the previous handshake, so one recorded "
                 "compromise would decrypt every later session")
         finally:
             master.cleanup()
@@ -155,52 +180,38 @@ class TestSessionKeyIsEphemeral:
 
 
 # ---------------------------------------------------------------------------
-# CRYPTO-1 §3.3 — a pre-shared key may skip the handshake
+# CRYPTO-1 §3 — the handshake is mandatory; the server offers only Noise
 # ---------------------------------------------------------------------------
 
-class TestPresharedKeySkipsTheHandshake:
-    """CRYPTO-1 §3.3 — 'a pre-shared key may skip the handshake.'
+class TestTheServerOffersOnlyTheNoiseHandshake:
+    """CRYPTO-1 §3 — 'The handshake is mandatory on every connection: there is
+    no cleartext, pre-shared-key, or password alternative.' (WIRE-1 §2 says
+    the same.)
 
-    The server has to *say* so, because the node cannot otherwise tell whether
-    silence means 'go ahead' or 'you failed'. The advertised parameter set is
-    the only place this is expressed, so the two flags below are wire contract,
-    not an internal detail. The complementary rule — that ``crypto_required``
-    still drops cleartext on such a connection — is already pinned in
-    ``test_protocol_rules.py``.
+    This replaces the protocol-v2 test that a pre-shared key let a node skip
+    the handshake. That mechanism is gone, so what the wire contract now
+    fixes is the opposite: the parameter HANDSHAKE (§3.3 step 2) advertises
+    Noise patterns and suites, and no field that offers a way around them.
     """
 
-    def test_the_parameter_set_reports_no_handshake_and_a_preshared_key(self):
-        master = MasterNode.create("M0")
-        satellite = SatelliteNode.create("S0")
-        satellite._master = master
-        try:
-            master.register_satellite(key=satellite.identity.access_key,
-                                      password=satellite.identity.password,
-                                      crypto_key="0123456789ABCDEF")
-            master.network_protocol.connect_satellite(satellite=satellite)
-
-            conn = satellite._connection
-            advertised = conn._handshake_payload
-            assert advertised["preshared_key"] is True, (
-                "a node holding a pre-shared key MUST be told so")
-            assert advertised["handshake"] is False, (
-                "with a pre-shared key in place the server MUST NOT demand a "
-                f"handshake; advertised={advertised}")
-            # (The session key itself is not asserted: a node MAY still run
-            # the optional handshake afterwards and rotate it. What §3.3
-            # fixes is that the server told the peer it need not.)
-        finally:
-            master.cleanup()
-            satellite.cleanup()
-
-    def test_without_a_preshared_key_the_handshake_is_demanded(self):
+    def test_the_parameter_set_offers_noise_and_no_alternative(self):
         master = MasterNode.create("M0")
         satellite = SatelliteNode.create("S0")
         try:
             satellite.connect(master)
             advertised = satellite._connection._handshake_payload
-            assert advertised["handshake"] is True
-            assert advertised["preshared_key"] is False
+            noise = advertised.get("noise") or {}
+            assert NOISE_PATTERN_XX in noise.get("patterns", []), (
+                "CRYPTO-1 §3.2: XXpsk2 MUST be offered; "
+                f"advertised={advertised}")
+            assert NOISE_SUITE_CHACHA in noise.get("suites", []), (
+                "CRYPTO-1 §3.1: 25519_ChaChaPoly_SHA256 is mandatory to "
+                f"implement; advertised={advertised}")
+            for legacy in ("preshared_key", "handshake", "crypto_key"):
+                assert not advertised.get(legacy), (
+                    f"the server advertised the legacy '{legacy}' field as "
+                    "true — CRYPTO-1 §3 allows no alternative to the Noise "
+                    f"handshake; advertised={advertised}")
         finally:
             master.cleanup()
             satellite.cleanup()
@@ -265,15 +276,16 @@ class TestNodeSelectsOnlyFromWhatTheServerOffered:
         Noise message would then fail a step later, for the wrong reason.
         """
         started = []
-        monkeypatch.setattr(
-            core_protocol, "start_noise_handshake",
-            lambda *a, **kw: started.append(kw.get("pattern")) or (_ for _ in ()).throw(
-                AssertionError("unreachable")))
-
         master = MasterNode.create("M0")
         satellite = SatelliteNode.create("S0")
         try:
+            # Connect first: the real handshake needs start_noise_handshake.
+            # The spy goes in only for the crafted message 1 below.
             satellite.connect(master)
+            monkeypatch.setattr(
+                core_protocol, "start_noise_handshake",
+                lambda *a, **kw: started.append(kw.get("pattern")) or (_ for _ in ()).throw(
+                    AssertionError("unreachable")))
             conn = master.hm_protocol.clients[satellite.peer]
             conn.noise_handshake = None
             conn._handshake_payload = {
@@ -312,20 +324,20 @@ class TestNodeSelectsOnlyFromWhatTheServerOffered:
         against a key nobody checked — the pin becomes optional, which is the
         whole security value of TOFU-then-pin.
 
-        The server here has never pinned S0's Noise key (the shim only ever
-        completes the legacy v2 handshake), and KKpsk0 is offered explicitly,
-        so the offer check cannot be what refuses it.
+        KKpsk0 is offered explicitly here, so the offer check cannot be what
+        refuses it. The pin check is what must refuse it.
         """
         started = []
-        monkeypatch.setattr(
-            core_protocol, "start_noise_handshake",
-            lambda *a, **kw: started.append(kw.get("pattern")) or (_ for _ in ()).throw(
-                AssertionError("unreachable")))
-
         master = MasterNode.create("M0")
         satellite = SatelliteNode.create("S0")
         try:
+            # Connect first: the real handshake needs start_noise_handshake.
+            # The spy goes in only for the crafted message 1 below.
             satellite.connect(master)
+            monkeypatch.setattr(
+                core_protocol, "start_noise_handshake",
+                lambda *a, **kw: started.append(kw.get("pattern")) or (_ for _ in ()).throw(
+                    AssertionError("unreachable")))
             conn = master.hm_protocol.clients[satellite.peer]
             conn.noise_handshake = None
             conn._handshake_payload = {
@@ -417,107 +429,8 @@ class TestStaticX25519KeyIsPersisted:
 
 
 # ---------------------------------------------------------------------------
-# CRYPTO-1 §4 — AEAD selection and nonces
+# CRYPTO-1 §4 — nonces
 # ---------------------------------------------------------------------------
-
-def _override_server_config(monkeypatch, **overrides):
-    """Run the node against the real server config with ``overrides`` applied.
-
-    A developer machine (or a CI image) with its own ``~/.config/hivemind``
-    can widen or narrow ``allowed_ciphers``, which would make a negotiation
-    assertion pass or fail for reasons that have nothing to do with the code.
-    Pinning the operator half of the negotiation is the only way the test can
-    say anything about the intersection.
-    """
-    cfg = dict(core_protocol.get_server_config())
-    cfg.update(overrides)
-    monkeypatch.setattr(core_protocol, "get_server_config", lambda: cfg)
-    return cfg
-
-
-class TestAeadNegotiation:
-    """CRYPTO-1 §4 — 'the AEAD is chosen from {CHACHA20-POLY1305, AES-GCM};
-    peers use the most-preferred cipher both support.'
-
-    A negotiation that silently settled on *anything* when the sets do not
-    overlap would be a downgrade oracle. hivemind-core intersects the client's
-    preference-ordered list with the operator's allow-list, takes the client's
-    top surviving choice, and drops the connection when nothing survives.
-    """
-
-    @staticmethod
-    def _renegotiate(master, satellite, ciphers):
-        """Send a fresh password HANDSHAKE offering ``ciphers``.
-
-        Re-handshaking on a live connection is a supported operation (the code
-        comments call it key rotation), which is what makes the negotiation
-        reachable in-process without rebuilding the node.
-        """
-        conn = master.hm_protocol.clients[satellite.peer]
-        envelope = satellite.slave_protocol.pswd_handshake.generate_handshake()
-        master.hm_protocol.handle_handshake_message(
-            HiveMessage(HiveMessageType.HANDSHAKE,
-                        {"envelope": envelope, "ciphers": ciphers}),
-            conn)
-        return conn
-
-    def test_the_client_top_choice_is_selected_when_the_server_allows_it(self, monkeypatch):
-        master = MasterNode.create("M0")
-        satellite = SatelliteNode.create("S0")
-        try:
-            satellite.connect(master)
-            _override_server_config(monkeypatch, allowed_ciphers=[
-                SupportedCiphers.AES_GCM.value,
-                SupportedCiphers.CHACHA20_POLY1305.value])
-            conn = self._renegotiate(
-                master, satellite,
-                [SupportedCiphers.CHACHA20_POLY1305.value,
-                 SupportedCiphers.AES_GCM.value])
-            assert conn.cipher == SupportedCiphers.CHACHA20_POLY1305, (
-                "with both ciphers allowed, the peers must land on the "
-                f"client's most-preferred; got {conn.cipher!r}")
-        finally:
-            master.cleanup()
-            satellite.cleanup()
-
-    def test_the_server_allow_list_narrows_the_choice(self, monkeypatch):
-        master = MasterNode.create("M0")
-        satellite = SatelliteNode.create("S0")
-        try:
-            satellite.connect(master)
-            # The client still prefers ChaCha20-Poly1305, but the operator only
-            # allows AES-GCM: the selection must be the most-preferred cipher
-            # *both* support, not the client's first choice.
-            _override_server_config(
-                monkeypatch, allowed_ciphers=[SupportedCiphers.AES_GCM.value])
-            conn = self._renegotiate(
-                master, satellite,
-                [SupportedCiphers.CHACHA20_POLY1305.value,
-                 SupportedCiphers.AES_GCM.value])
-            assert conn.cipher == SupportedCiphers.AES_GCM, (
-                "a cipher the operator did not allow MUST NOT be selected; "
-                f"got {conn.cipher!r}")
-        finally:
-            master.cleanup()
-            satellite.cleanup()
-
-    def test_no_shared_cipher_drops_the_connection(self, monkeypatch):
-        master = MasterNode.create("M0")
-        satellite = SatelliteNode.create("S0")
-        try:
-            satellite.connect(master)
-            assert satellite.peer in master.hm_protocol.clients
-            _override_server_config(
-                monkeypatch, allowed_ciphers=[SupportedCiphers.AES_GCM.value])
-            self._renegotiate(master, satellite,
-                              [SupportedCiphers.CHACHA20_POLY1305.value])
-            assert satellite.peer not in master.hm_protocol.clients, (
-                "with no mutually supported AEAD the connection MUST be "
-                "dropped, never continued in the clear or on a guessed cipher")
-        finally:
-            master.cleanup()
-            satellite.cleanup()
-
 
 class TestNoncesAreFreshAndTheDeployedSize:
     """CRYPTO-1 §4 — 'a fresh, unique IV per message.'
