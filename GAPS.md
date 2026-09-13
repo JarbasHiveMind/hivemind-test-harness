@@ -5,7 +5,7 @@ owns the fix. Remove a row when its job goes green.
 
 | Job | Test | Cause | Owner | Unblocked by |
 | --- | --- | --- | --- | --- |
-| micropython-e2e | all 4 tests in `tests/test_micropython_e2e.py` | hivemind-micropython-client `dev` does not start the Noise handshake on a hivemind-core 5.x parameter message; the client stays in state 2 after HELLO | hivemind lane (JarbasHiveMind/hivemind-micropython-client) | hivemind-micropython-client#22 merged |
+| none | | | | |
 
 ## Consumer defects seen in the e2e shards that do not turn a test red
 
