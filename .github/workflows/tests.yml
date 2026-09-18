@@ -14,10 +14,10 @@ jobs:
         python-version: ["3.10", "3.11"]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -84,10 +84,10 @@ jobs:
     timeout-minutes: 90
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.11"
 
@@ -185,10 +185,10 @@ jobs:
     needs: harness-tests
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.11"
 
@@ -233,7 +233,7 @@ jobs:
     continue-on-error: true
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Checkout MicroPython client (private — needs a PAT to succeed)
       id: micropython_checkout
@@ -243,14 +243,14 @@ jobs:
       # gate the test step on it instead: the job then ends green and says
       # plainly that it did not test anything.
       continue-on-error: true
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: JarbasHiveMind/hivemind-micropython-client
         path: hivemind-micropython-client
         token: ${{ secrets.HIVEMIND_PAT || secrets.GITHUB_TOKEN }}
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.11"
 
@@ -283,26 +283,26 @@ jobs:
     needs: harness-tests
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     # The JS driver (test_helpers/js_e2e_driver.mjs) requires the HiveMind-js
     # client; check it out and point HIVEMIND_JS_PATH at its hivemind.js.
     - name: Checkout HiveMind-js
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: JarbasHiveMind/HiveMind-js
         ref: dev
         path: hivemind-js-src
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.11"
 
     - name: Set up Node.js
       uses: actions/setup-node@v7
       with:
-        node-version: "20"
+        node-version: "24"
 
     - name: Install Node.js dependencies
       # local install (not -g) so the driver's `require('ws')` resolves by
