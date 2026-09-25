@@ -27,6 +27,7 @@ from tests.conftest import (
     VOICE_TYPES,
     SKILL_RANDOMNESS, SKILL_DICTATION,
     skill_missing, make_utterance, wait_for_satellite_message,
+    wait_for_skill_intents,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -117,13 +118,9 @@ def cancel_topology():
 
     agent = make_ovoscope_agent(skill_ids=skill_ids, extra_skills=extra)
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{TIMEOUT_SKILL_ID}:TestTimeoutIntent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("Test skills not registered within 120s")
+    if not wait_for_skill_intents(agent, TIMEOUT_SKILL_ID):
+        pytest.skip(f"{TIMEOUT_SKILL_ID} registered no intent handler within "
+                    f"120s - the skill did not load")
 
     b = TopologyBuilder()
     try:
@@ -144,13 +141,9 @@ def dictation_topology():
     """MiniCroft with dictation skill."""
     agent = make_ovoscope_agent(skill_ids=[SKILL_DICTATION])
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_DICTATION}:start_dictation.intent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("Dictation skill not registered within 120s")
+    if not wait_for_skill_intents(agent, SKILL_DICTATION):
+        pytest.skip(f"{SKILL_DICTATION} registered no intent handler within "
+                    f"120s - the skill did not load")
 
     b = TopologyBuilder()
     try:
@@ -349,9 +342,9 @@ class TestDictation:
                                 s0.shim.session_id))
         messages = cap2.wait(timeout=15)
 
-        # Should NOT trigger HelloWorldIntent — dictation captures it
+        # Should NOT trigger hello_world_intent — dictation captures it
         hello_intents = [m for m in messages
-                         if "HelloWorldIntent" in m.msg_type]
+                         if "hello_world_intent" in m.msg_type]
         assert len(hello_intents) == 0, (
             "Dictation mode should capture utterances, not match intents"
         )
