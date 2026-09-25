@@ -1601,9 +1601,15 @@ class TestKeyEstablishmentMessageGate:
         conn = m0.hm_protocol.clients[s0.peer]
         conn.noise_transport = None  # pre-Split() state
 
+        # The payload is the OBJECT, not Message.serialize()'s string.
+        # HIVEMIND-MSG-1 §4 refuses a string payload, and hivemind-bus-client
+        # enforces that from 1.2.4a1, so the string form made decode() raise
+        # MalformedWirePayload at the door and the cleartext guard under test
+        # never ran. The frame has to be one the node would otherwise accept.
         frame = json.dumps({"msg_type": HiveMessageType.BUS.value,
-                            "payload": Message("recognizer_loop:utterance",
-                                               {}).serialize()})
+                            "payload": json.loads(
+                                Message("recognizer_loop:utterance",
+                                        {}).serialize())})
         with pytest.raises(UnencryptedMessageError):
             conn.decode(frame)
 
