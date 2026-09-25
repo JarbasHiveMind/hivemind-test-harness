@@ -31,6 +31,7 @@ from tests.conftest import (
     SKILL_HELLO, SKILL_DATETIME, SKILL_VOLUME, SKILL_FALLBACK,
     skill_missing, make_utterance, assert_types_in_order,
     wait_for_satellite_message,
+    wait_for_skill_intents,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -70,13 +71,9 @@ def acl_agent():
         agent.bus.on("mycroft.volume.get",
                      lambda m: agent.bus.emit(m.response({"percent": 0.5, "muted": False})))
 
-        _deadline = time.monotonic() + 120
-        while time.monotonic() < _deadline:
-            if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-                break
-            time.sleep(0.5)
-        else:
-            pytest.skip("Skills not registered within 120s")
+        if not wait_for_skill_intents(agent, SKILL_HELLO):
+            pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+                        f"within 120s - the skill did not load")
         yield agent
     finally:
         agent.shutdown()
@@ -101,12 +98,12 @@ def skill_blacklist_topology(acl_agent):
 
 @pytest.fixture(scope="module")
 def intent_blacklist_topology(acl_agent):
-    """S0 has HelloWorldIntent blacklisted."""
+    """S0 has the hello-world hello_world_intent handler blacklisted."""
     b = TopologyBuilder()
     try:
         b.add_master("M0", agent_protocol=acl_agent)
         b.add_satellite("S0", upstream=b.get_master("M0"),
-                         intent_blacklist=[f"{SKILL_HELLO}:HelloWorldIntent"],
+                         intent_blacklist=[f"{SKILL_HELLO}:hello_world_intent"],
                          allowed_types=VOICE_TYPES)
         b.start_all()
         yield b, acl_agent
@@ -148,9 +145,9 @@ class TestSkillBlacklist:
         s0.send(make_utterance("hello world", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        # HelloWorldIntent should NOT fire — should get fallback or intent failure
+        # hello_world_intent should NOT fire — should get fallback or intent failure
         assert not any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
+            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
         ), f"Blacklisted skill executed.\nCaptured: {[m.msg_type for m in messages]}"
 
     def test_non_blacklisted_skill_works(self, skill_blacklist_topology):
@@ -180,7 +177,7 @@ class TestSkillBlacklist:
         messages = cap.wait(timeout=15)
 
         assert any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
+            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
         ), f"Unrestricted satellite should trigger hello-world.\nCaptured: {[m.msg_type for m in messages]}"
 
 
@@ -194,7 +191,7 @@ class TestIntentBlacklist:
     """TS-ACL-04..05 — intent_blacklist blocks specific intents."""
 
     def test_blacklisted_intent_blocked(self, intent_blacklist_topology):
-        """TS-ACL-04 — HelloWorldIntent blacklisted: 'hello world' fails."""
+        """TS-ACL-04 — hello_world_intent blacklisted: 'hello world' fails."""
         b, agent = intent_blacklist_topology
         agent.clear()
         s0 = b.get_satellite("S0")
@@ -204,11 +201,11 @@ class TestIntentBlacklist:
         messages = cap.wait(timeout=15)
 
         assert not any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
+            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
         ), f"Blacklisted intent was executed.\nCaptured: {[m.msg_type for m in messages]}"
 
     def test_other_intents_in_same_skill_work(self, intent_blacklist_topology):
-        """TS-ACL-05 — Greetings.intent not blacklisted: 'good morning' works."""
+        """TS-ACL-05 — greetings not blacklisted: 'good morning' works."""
         b, agent = intent_blacklist_topology
         agent.clear()
         s0 = b.get_satellite("S0")
@@ -219,7 +216,7 @@ class TestIntentBlacklist:
         messages = cap.wait(timeout=15)
 
         intent = next(
-            (m for m in messages if m.msg_type == f"{SKILL_HELLO}:Greetings.intent"),
+            (m for m in messages if m.msg_type == f"{SKILL_HELLO}:greetings"),
             None,
         )
         assert intent is not None, (
@@ -277,7 +274,7 @@ class TestMsgBlacklist:
 
         # Skill should still fire on hub
         assert any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
+            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
         ), f"Skill should still execute on hub.\nCaptured: {[m.msg_type for m in messages]}"
 
         # But satellite should NOT receive speak

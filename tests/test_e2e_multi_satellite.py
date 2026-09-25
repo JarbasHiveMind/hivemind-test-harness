@@ -27,6 +27,7 @@ from tests.conftest import (
     VOICE_TYPES,
     SKILL_HELLO, SKILL_VOLUME,
     skill_missing, make_utterance, wait_for_satellite_message,
+    wait_for_skill_intents,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -56,13 +57,9 @@ def star_skill_topology():
     agent.bus.on("mycroft.volume.get",
                  lambda m: agent.bus.emit(m.response({"percent": 0.5, "muted": False})))
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("HelloWorldIntent not registered within 120s")
+    if not wait_for_skill_intents(agent, SKILL_HELLO):
+        pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+                    f"within 120s - the skill did not load")
 
     b = TopologyBuilder()
     try:
