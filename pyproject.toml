@@ -92,6 +92,13 @@ dev = [
     # declared public key (hivemind-rendezvous#14 / HiveMind-core#248). The
     # suite deposits with target_key, which 1.x does not understand.
     "hivemind-rendezvous>=2.0.0a1",
+    # tests/test_msg1_producer_bridge.py drives the real
+    # HiveMind-baresip-bridge CallCallbacks producer against a loopback
+    # hivemind-core (OVOS-MSG-1 §3.3, T-3449). 0.1.2a1 is the first release
+    # that stamps ``destination`` as a string rather than a one-element list
+    # (HiveMind-baresip-bridge#37, T-2650); the cells assert outright, so
+    # 0.1.1a5 fails them rather than skipping.
+    "hivemind-baresip-bridge>=0.1.2a1",
 ]
 # Live OVOS skill execution through HiveMind (MiniCroft-backed agent). Mirrors
 # hivescope's own ``ovos`` extra, plus the intent-pipeline plugins MiniCroft

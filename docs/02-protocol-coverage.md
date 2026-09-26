@@ -157,6 +157,7 @@ Counts from `pytest tests --collect-only -q`.
 | `test_spec_bridge1_session_nat.py` | 5 | HIVEMIND-BRIDGE-1 §4 per-connection session NAT, multiplex isolation, contents-merge, admin exemption |
 | `test_spec_crypto1.py` | 26 | HIVEMIND-CRYPTO-1 handshake, AEAD and origin authentication |
 | `test_spec_msg1.py` | 26 | HIVEMIND-MSG-1 normative requirements |
+| `test_msg1_producer_bridge.py` | 3 | OVOS-MSG-1 §3.3: the baresip-bridge producer stamps a string `destination`, through a real hivemind-core |
 | `test_spec_musts.py` | 41 | Cross-spec MUSTs that had no other coverage |
 | `test_spec_node1.py` | 8 | HIVEMIND-NODE-1 routing, flooding and relay duties |
 | `test_spec_policy1.py` | 13 | HIVEMIND-POLICY-1 admission chain |
