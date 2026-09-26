@@ -21,14 +21,13 @@ sequence on the skill bus is identical to what the upstream tests assert.
 
 Test IDs
 --------
-TS-HW-01   padatious pipeline: "hello world" → HelloWorldIntent → speak
+TS-HW-01   padatious pipeline: "hello world" → hello_world_intent → speak
 TS-HW-02   adapt pipeline: "hello world" → ovos.intent.unmatched
-TS-HW-03   padatious pipeline: "good morning" → Greetings intent → speak
+TS-HW-03   padatious pipeline: "good morning" → greetings intent → speak
 TS-HW-04   adapt pipeline: "good morning" → ovos.intent.unmatched
 TS-HW-05   speak from hello-world routes back to satellite via HiveMind
 """
 import threading
-import time
 
 import pytest
 from ovos_bus_client.message import Message
@@ -36,7 +35,8 @@ from ovos_spec_tools import SpecMessage
 from ovos_bus_client.session import Session
 
 from hivescope.topology import TopologyBuilder
-from tests.conftest import open_capture, make_ovoscope_agent
+from tests.conftest import (open_capture, make_ovoscope_agent,
+                            wait_for_skill_intents)
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
 # handlers run serially after that, so the repo-wide 30s default is far too
@@ -121,18 +121,12 @@ def hw_topology():
     """
     agent = make_ovoscope_agent(skill_ids=[SKILL_ID])
 
-    # Wait for HelloWorldIntent to be registered on the bus.
+    # Wait for the skill to register its intent handlers on the bus.
     # MiniCroft sets ProcessState.READY before the skill's initialize()
     # completes; intents are registered asynchronously in a background thread.
-    # We poll the FakeBus's EventEmitter until the intent handler appears.
-    _hw_intent = f"{SKILL_ID}:HelloWorldIntent"
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(_hw_intent)) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip(f"HelloWorldIntent not registered within 120s — skill may have failed to load")
+    if not wait_for_skill_intents(agent, SKILL_ID):
+        pytest.skip(f"{SKILL_ID} registered no intent handler within 120s - "
+                    f"the skill did not load")
 
     b = TopologyBuilder()
     b.add_master("M0", agent_protocol=agent)
@@ -148,13 +142,14 @@ def hw_topology():
 
 
 # ---------------------------------------------------------------------------
-# TS-HW-01  padatious pipeline: "hello world" → HelloWorldIntent → speak
-# (ovos-skill-hello-world 0.2.8a2 moved HelloWorldIntent from an Adapt
-# IntentBuilder to HelloWorldIntent.intent)
+# TS-HW-01  padatious pipeline: "hello world" → hello_world_intent → speak
+# (ovos-skill-hello-world 0.5.2a2 registers the handler name
+# `<skill_id>:hello_world_intent`. The older Adapt spelling
+# `<skill_id>:HelloWorldIntent` gets 0 listeners on this skill.)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(_skill_missing(), reason=f"{SKILL_ID} not installed")
-class TestAdaptIntentViaHiveMind:
+class TestHelloWorldIntentViaHiveMind:
     """TS-HW-01 — padatious pipeline matches 'hello world' through HiveMind routing."""
 
     PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
@@ -183,11 +178,11 @@ class TestAdaptIntentViaHiveMind:
         messages = cap.wait(timeout=60)
 
         intent_msg = next(
-            (m for m in messages if m.msg_type == f"{SKILL_ID}:HelloWorldIntent"),
+            (m for m in messages if m.msg_type == f"{SKILL_ID}:hello_world_intent"),
             None,
         )
         assert intent_msg is not None, (
-            f"Intent '{SKILL_ID}:HelloWorldIntent' not found.\n"
+            f"Intent '{SKILL_ID}:hello_world_intent' not found.\n"
             f"Captured: {_types(messages)}"
         )
         assert "hello world" in intent_msg.data.get("utterance", "")
@@ -209,7 +204,7 @@ class TestAdaptIntentViaHiveMind:
             f"Unexpected speak utterance: {speak.data.get('utterance')}"
         )
 
-    def test_full_adapt_sequence_in_order(self, hw_topology):
+    def test_full_intent_sequence_in_order(self, hw_topology):
         """Messages must appear in the same order as the upstream test expects."""
         b, agent = hw_topology
         agent.clear()
@@ -222,7 +217,7 @@ class TestAdaptIntentViaHiveMind:
         _assert_types_in_order(
             messages,
             "recognizer_loop:utterance",
-            f"{SKILL_ID}:HelloWorldIntent",
+            f"{SKILL_ID}:hello_world_intent",
             "mycroft.skill.handler.start",
             SpecMessage.SPEAK,
             "mycroft.skill.handler.complete",
@@ -252,7 +247,7 @@ class TestAdaptIntentViaHiveMind:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(_skill_missing(), reason=f"{SKILL_ID} not installed")
-class TestAdaptUtterancePadatiousPipelineViaHiveMind:
+class TestHelloWorldOnAdaptPipelineViaHiveMind:
     """
     TS-HW-02 — 'hello world' via adapt pipeline → ovos.intent.unmatched.
     hello-world ships 'hello world' as a Padatious intent (0.2.8a2); adapt won't match it.
@@ -304,12 +299,12 @@ class TestAdaptUtterancePadatiousPipelineViaHiveMind:
 
 
 # ---------------------------------------------------------------------------
-# TS-HW-03  padatious pipeline: "good morning" → Greetings intent → speak
+# TS-HW-03  padatious pipeline: "good morning" → greetings intent → speak
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(_skill_missing(), reason=f"{SKILL_ID} not installed")
-class TestPadatiousIntentViaHiveMind:
-    """TS-HW-03 — 'good morning' via padatious → Greetings intent → speak."""
+class TestGoodMorningIntentViaHiveMind:
+    """TS-HW-03 — 'good morning' via padatious → greetings intent → speak."""
 
     PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 
@@ -323,11 +318,11 @@ class TestPadatiousIntentViaHiveMind:
         messages = cap.wait(timeout=60)
 
         intent_msg = next(
-            (m for m in messages if m.msg_type in (f"{SKILL_ID}:Greetings", f"{SKILL_ID}:Greetings.intent")),
+            (m for m in messages if m.msg_type == f"{SKILL_ID}:greetings"),
             None,
         )
         assert intent_msg is not None, (
-            f"Intent '{SKILL_ID}:Greetings' not found (canonical or legacy).\n"
+            f"Intent '{SKILL_ID}:greetings' not found.\n"
             f"Captured: {_types(messages)}"
         )
 
@@ -362,10 +357,7 @@ class TestPadatiousIntentViaHiveMind:
         _assert_types_in_order(
             messages,
             "recognizer_loop:utterance",
-            # workshop >=9.3.2a1 registers the canonical (suffix-free) name;
-            # the sequence assertion accepts either spelling so this file
-            # tracks behavior, not the vintage of the resolved stack.
-            (f"{SKILL_ID}:Greetings", f"{SKILL_ID}:Greetings.intent"),
+            f"{SKILL_ID}:greetings",
             "mycroft.skill.handler.start",
             SpecMessage.SPEAK,
             "mycroft.skill.handler.complete",
@@ -378,7 +370,7 @@ class TestPadatiousIntentViaHiveMind:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(_skill_missing(), reason=f"{SKILL_ID} not installed")
-class TestPadatiousUtteranceAdaptPipelineViaHiveMind:
+class TestGoodMorningOnAdaptPipelineViaHiveMind:
     """
     TS-HW-04 — 'good morning' via adapt pipeline → ovos.intent.unmatched.
     hello-world uses Padatious for 'good morning'; Adapt won't match it.
