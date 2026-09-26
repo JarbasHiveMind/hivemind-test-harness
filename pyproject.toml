@@ -9,6 +9,20 @@ description = "In-process end-to-end test framework for the HiveMind protocol"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 classifiers = [
+    # NOT A PUBLISHED DISTRIBUTION. This repository owns the cross-repo
+    # integration tests; the reusable in-process simulator is ``hivescope``,
+    # which IS published and is a dependency below. The ``hivemind_test_harness``
+    # package here holds only a backwards-compatible re-export of four
+    # hivescope names, and its own docstring tells new code to import from
+    # hivescope directly, so a release would ship a shim for a library that is
+    # already on PyPI under its own name.
+    #
+    # "Private :: Do Not Upload" is not a registered trove classifier, which
+    # is the point: PyPI rejects any upload carrying an unknown classifier, so
+    # this refuses a publish rather than only asking for one not to happen.
+    # Remove it, and add a publish workflow and a channel pin, if this ever
+    # becomes a distribution.
+    "Private :: Do Not Upload",
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3.10",
