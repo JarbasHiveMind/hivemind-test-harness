@@ -1220,8 +1220,35 @@ class TestSessionCipherIntegrity:
                 "precondition: a v3 connection always requires crypto"
             cleartext = HiveMessage(HiveMessageType.BUS,
                                     payload=Message("test.event", {})).serialize()
-            with pytest.raises(Exception):
+            # The NAMED error, not bare Exception. MalformedWirePayload is a
+            # ValueError and so an Exception too, so `raises(Exception)` passed
+            # for a frame refused at the DOOR — measured by rebuilding this
+            # frame with a string payload, the exact defect the sibling cell
+            # next door exists to catch, which still gave 1 passed. The test
+            # could not tell a §3.5 refusal from a parse refusal.
+            #
+            # NoiseTransportFailed, not UnencryptedMessageError. On a v3
+            # session the cleartext frame is refused by the Noise transport
+            # gate, before the crypto_required guard further down is reached —
+            # measured; asserting UnencryptedMessageError here FAILS.
+            #
+            # The type alone is still not enough, and this is the part a
+            # one-word fix misses. decode() raises NoiseTransportFailed from
+            # TWO guards: this gate, and the AEAD decrypt below it. With the
+            # gate commented out the frame falls through to the decrypt, which
+            # raises the SAME type, so the cell passed with the guard under
+            # test removed — measured. The recorded reason is what separates
+            # them: `non_noise_frame` for the gate, `invalid_noise_frame` for
+            # the AEAD path.
+            before = len(b.get_master("M0").hm_protocol.recent_rejections)
+            with pytest.raises(core_protocol.NoiseTransportFailed):
                 conn.decode(cleartext)
+            ring = list(b.get_master("M0").hm_protocol.recent_rejections)
+            assert len(ring) == before + 1, \
+                "the refusal must be recorded for the operator"
+            assert ring[-1]["reason"] == "non_noise_frame", \
+                (f"the cleartext gate must be what refused it, not the AEAD "
+                 f"path; recorded {ring[-1]['reason']!r}")
         finally:
             b.stop_all()
 
