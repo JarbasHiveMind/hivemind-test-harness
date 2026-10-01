@@ -14,7 +14,6 @@ Test IDs
 --------
 TS-SE-01 through TS-SE-04
 """
-import time
 
 import pytest
 from ovos_bus_client.message import Message
@@ -27,6 +26,7 @@ from tests.conftest import (
     open_capture,
     SKILL_HELLO, SKILL_DATETIME,
     skill_missing, make_utterance, make_ovoscope_agent,
+    wait_for_skill_intents,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -37,7 +37,6 @@ pytestmark = pytest.mark.timeout(300)
 # ovos-skill-hello-world 0.2.8a2 moved HelloWorldIntent from an Adapt
 # IntentBuilder to HelloWorldIntent.intent, so only Padatious matches it.
 HELLO_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
-PADATIOUS_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 
 
 @pytest.fixture(scope="module")
@@ -48,13 +47,9 @@ def session_topology():
     # tight. make_ovoscope_agent pre-boots MiniCroft with a roomier deadline.
     agent = make_ovoscope_agent(skill_ids=[SKILL_HELLO, SKILL_DATETIME])
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("HelloWorldIntent not registered within 120s")
+    if not wait_for_skill_intents(agent, SKILL_HELLO):
+        pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+                    f"within 120s - the skill did not load")
 
     b = TopologyBuilder()
     try:

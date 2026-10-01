@@ -9,7 +9,6 @@ Test IDs
 --------
 TS-LANG-01 through TS-LANG-05
 """
-import time
 
 import pytest
 from ovos_bus_client.message import Message
@@ -24,6 +23,7 @@ from tests.conftest import (
     VOICE_TYPES,
     SKILL_HELLO,
     skill_missing, make_utterance,
+    wait_for_skill_intents,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -79,13 +79,9 @@ def lang_topology():
         extra_skills={MULTILANG_SKILL_ID: MultiLangTestSkill}
     )
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("Skills not registered within 120s")
+    if not wait_for_skill_intents(agent, SKILL_HELLO):
+        pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+                    f"within 120s - the skill did not load")
 
     b = TopologyBuilder()
     try:
@@ -115,7 +111,7 @@ class TestLangPropagation:
         messages = cap.wait(timeout=15)
 
         assert any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
+            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
         ), f"English utterance should match.\nCaptured: {[m.msg_type for m in messages]}"
 
     def test_lang_preserved_in_hub_message(self, lang_topology):
@@ -152,9 +148,9 @@ class TestLangMismatch:
                                 lang="de-DE"))
         messages = cap.wait(timeout=15)
 
-        # Should NOT match HelloWorldIntent (English-only vocab)
+        # Should NOT match hello_world_intent (English-only vocab)
         assert not any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
+            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
         ), f"German utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
 
     def test_french_utterance_no_match(self, lang_topology):
@@ -169,7 +165,7 @@ class TestLangMismatch:
         messages = cap.wait(timeout=15)
 
         assert not any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
+            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
         ), f"French utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
 
 
