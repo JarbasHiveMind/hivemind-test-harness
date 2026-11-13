@@ -19,8 +19,22 @@ from hivemind_bus_client.serialization import HiveMindBinaryPayloadType
 from ovos_bus_client.message import Message
 
 
+def _make_pcm_bytes(num_samples=480):
+    """Headerless 16-bit mono PCM: the UPLINK STT contract.
+
+    HIVEMIND-AUDIO-1 §2: a RAW_AUDIO payload "and the audio inside the STT
+    tags, carries uncompressed PCM samples", with the rate and the width in
+    metadata. Panel decision hivemind-b64-stt-audio-pcm-or-wav closed with
+    choice pcm on 2026-09-29, which covers the base64 bus field as well.
+
+    _make_wav_bytes stays for the DOWNLINK: §4 makes a TTS clip a complete
+    encoded file, because a satellite has to play it.
+    """
+    return b'\x00\x01' * num_samples
+
+
 def _make_wav_bytes(num_samples=480):
-    """Build a minimal 16-bit mono 16 kHz WAV."""
+    """Build a minimal 16-bit mono 16 kHz WAV. DOWNLINK (TTS) only."""
     pcm = b'\x00\x01' * num_samples
     data_bytes = num_samples * 2
     hdr = bytearray(44)
@@ -104,14 +118,28 @@ class TestSTTBase64:
         s0 = b.get_satellite("S0")
         m0 = b.get_master("M0")
 
-        wav = _make_wav_bytes(16000)
-        b64_audio = base64.b64encode(wav).decode("utf-8")
+        pcm = _make_pcm_bytes(16000)
+        b64_audio = base64.b64encode(pcm).decode("utf-8")
 
         s0.send(Message("recognizer_loop:b64_transcribe", {
-            "audio": b64_audio, "lang": "en-us"
+            "audio": b64_audio, "lang": "en-us",
+            "sample_rate": 16000, "sample_width": 2,
         }))
 
         m0.agent_protocol.assert_injected("recognizer_loop:b64_transcribe")
+        # MEASURE THE PAYLOAD, not only that a message arrived. Without this
+        # the cell passes whatever the satellite encoded, which is how the
+        # container contract survived here unnoticed: the assertion above is
+        # true for a WAV, for PCM, and for nothing at all.
+        injected = m0.agent_protocol.last_injected("recognizer_loop:b64_transcribe")
+        delivered = base64.b64decode(injected.data["audio"])
+        assert delivered == pcm, (
+            "the b64 field did not reach the master as the exact bytes sent")
+        assert delivered[:4] != b"RIFF", (
+            "AUDIO-1 §2: the STT audio field carries uncompressed PCM, not a "
+            "container; the rate and the width travel beside it")
+        assert injected.data["sample_rate"] == 16000
+        assert injected.data["sample_width"] == 2
 
     def test_b64_transcribe_response_reaches_satellite(self, minimal_topology):
         b = minimal_topology
@@ -328,10 +356,25 @@ class TestFullFlows:
         s0 = b.get_satellite("S0")
         m0 = b.get_master("M0")
 
-        wav = _make_wav_bytes(16000)
-        b64 = base64.b64encode(wav).decode("utf-8")
-        s0.send(Message("recognizer_loop:b64_transcribe", {"audio": b64, "lang": "en-us"}))
+        pcm = _make_pcm_bytes(16000)
+        b64 = base64.b64encode(pcm).decode("utf-8")
+        s0.send(Message("recognizer_loop:b64_transcribe", {
+            "audio": b64, "lang": "en-us",
+            "sample_rate": 16000, "sample_width": 2}))
         m0.agent_protocol.assert_injected("recognizer_loop:b64_transcribe")
+        # The flow cell measures the payload too, for the same reason as
+        # TestSTTBase64: an injection assertion alone is true for a container.
+        flow_injected = m0.agent_protocol.last_injected(
+            "recognizer_loop:b64_transcribe")
+        flow_delivered = base64.b64decode(flow_injected.data["audio"])
+        assert flow_delivered == pcm, (
+            "the uplink b64 field did not arrive as the exact PCM sent")
+        # An absolute check beside the round-trip one. Comparing only against
+        # the variable is self-referential: swap the send for a container and
+        # both sides move together, so the cell would pass on the contract it
+        # exists to refuse. Measured — that mutation did pass until this line.
+        assert flow_delivered[:4] != b"RIFF", (
+            "AUDIO-1 §2: the uplink STT field carries PCM, not a container")
 
         # Register handlers before sending responses
         ev1, r1 = _wait_bus_msg(s0, "recognizer_loop:b64_transcribe.response")
