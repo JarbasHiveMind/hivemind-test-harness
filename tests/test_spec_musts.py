@@ -53,7 +53,7 @@ from hivescope.node import MasterNode, SatelliteNode
 from hivescope.topology import TopologyBuilder
 from hivescope.assertions import assert_policy_denied
 
-from tests.conftest import poll_until
+from tests.conftest import PollTimeout, poll_until
 
 
 # ---------------------------------------------------------------------------
@@ -371,14 +371,24 @@ class TestReservedWireCodes:
     def test_unassigned_code_is_rejected_as_malformed(self):
         """A receiver MUST reject an unassigned code instead of mapping it to
         a type. Code 11 and 13-31 are the unassigned range."""
-        from hivemind_bus_client.serialization import _decode_bitstring_v1
-        from bitstring import BitStream
+        from bitstring import Bits
+        from hivemind_bus_client.exceptions import MalformedBinaryFrame
+        from hivemind_bus_client.serialization import decode_bitstring
 
-        # the v1 body opens with the 5-bit message-type code; the decoder must
-        # refuse an unassigned one before it reads anything else
+        def frame(code):
+            # pad bit, versioned flag, version 1, then the 5-bit type code;
+            # the decoder must refuse an unassigned code before reading on
+            return Bits(f"0b1100000001{code:05b}")
+
         for code in (11, 13, 31):
-            with pytest.raises(ValueError):
-                _decode_bitstring_v1(BitStream(uint=code, length=5))
+            with pytest.raises(MalformedBinaryFrame, match="unassigned"):
+                decode_bitstring(frame(code))
+
+        # the same truncated frame with an assigned code fails for being
+        # short, not for its code, so the match above is the code check
+        with pytest.raises(MalformedBinaryFrame) as excinfo:
+            decode_bitstring(frame(7))
+        assert "unassigned" not in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
@@ -1859,11 +1869,21 @@ class TestQueryStreamEnd:
                       "is_response": False}))
         return responses
 
+    @staticmethod
+    def _wait_for(responses, msg_type, timeout=5.0):
+        """The node answers off its IOLoop, so the stream reaches the
+        satellite after ``send`` returns. Wait for the frame that ends it."""
+        poll_until(lambda: msg_type in _response_msg_types(responses),
+                   timeout=timeout,
+                   message=f"no {msg_type} reached the originator; got "
+                           f"{_response_msg_types(responses)}")
+
     def test_complete_is_sent_after_the_last_chunk(self, minimal_topology):
         b = minimal_topology
         _stub_agent_answer(b.get_master("M0"), ["four", "or maybe five"])
 
         responses = self._ask(b.get_satellite("S0"))
+        self._wait_for(responses, self.QUERY_COMPLETE)
 
         assert _response_msg_types(responses) == [
             "speak", "speak", self.QUERY_COMPLETE], \
@@ -1874,14 +1894,19 @@ class TestQueryStreamEnd:
         _stub_agent_answer(b.get_master("M0"), ["four"])
 
         responses = self._ask(b.get_satellite("S0"))
+        self._wait_for(responses, self.QUERY_COMPLETE)
 
-        assert _response_msg_types(responses).count(self.QUERY_COMPLETE) == 1
+        # a second end-of-stream may come from another worker, later
+        with pytest.raises(PollTimeout):
+            poll_until(lambda: _response_msg_types(responses).count(
+                self.QUERY_COMPLETE) > 1, timeout=1.0)
 
     def test_complete_is_not_sent_for_a_declined_query(self, minimal_topology):
         b = minimal_topology
         _stub_agent_answer(b.get_master("M0"), [])  # agent declines
 
         responses = self._ask(b.get_satellite("S0"))
+        self._wait_for(responses, "hive.query.timeout")
 
         types = _response_msg_types(responses)
         assert self.QUERY_COMPLETE not in types, (
@@ -1980,7 +2005,11 @@ class TestLoopedMessagesAreStillDeliveredLocally:
                           "originator_peer": s0.peer, "is_response": False},
                 route=self._route_naming(r1)))
 
-            # local delivery: R1 answered the cascade back to the originator
+            # local delivery: R1 answered the cascade back to the originator,
+            # from its answering worker, so after send() returned
+            poll_until(lambda: "speak" in _response_msg_types(s0_responses),
+                       timeout=5.0,
+                       message="a looped CASCADE must still be answered locally")
             assert "speak" in _response_msg_types(s0_responses), (
                 "a looped CASCADE must still be answered locally; got "
                 f"{_response_msg_types(s0_responses)}")
