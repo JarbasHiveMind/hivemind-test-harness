@@ -11,6 +11,12 @@ from ovos_bus_client.message import Message
 
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
 from hivescope.topology import TopologyBuilder
+from tests.conftest import PollTimeout, poll_until
+
+# The answering node runs the agent off its IOLoop (HiveMind-core 5.3.6a1), so
+# an answer reaches the originator, or the select callback, after ``send``
+# returns. The cells wait for it rather than reading state straight after.
+ANSWER_TIMEOUT = 5.0
 
 
 def _cascade_msg(utterance: str = "what is the weather?",
@@ -96,7 +102,8 @@ class TestCascadeAllRespond:
         s0.send(msg)
 
         # At minimum, master's agent should respond
-        assert len(responses) >= 1, "Satellite should receive at least one CASCADE response"
+        poll_until(lambda: responses, timeout=ANSWER_TIMEOUT,
+                   message="Satellite should receive at least one CASCADE response")
         resp = responses[0]
         assert resp.metadata.get("is_response") is True
         assert resp.metadata.get("query_id") == query_id
@@ -143,8 +150,9 @@ class TestCascadeStarTopology:
         s0.send(msg)
 
         # Should get master's response
-        resp_messages = [r for r in responses if r.metadata.get("is_response")]
-        assert len(resp_messages) >= 1, "Should receive master's CASCADE response"
+        poll_until(lambda: [r for r in responses if r.metadata.get("is_response")],
+                   timeout=ANSWER_TIMEOUT,
+                   message="Should receive master's CASCADE response")
 
 
 class TestCascadeRelayForwarding:
@@ -220,7 +228,8 @@ class TestCascadeSelectCallback:
         s0.send(msg)
 
         # The callback should have been invoked
-        assert len(selected) >= 1, "cascade_select_callback should be invoked"
+        poll_until(lambda: selected, timeout=ANSWER_TIMEOUT,
+                   message="cascade_select_callback should be invoked")
         assert selected[0][0] == query_id
 
     def test_select_callback_none_does_not_emit(self, minimal_topology):
@@ -241,10 +250,19 @@ class TestCascadeSelectCallback:
 
         m0.hm_protocol.cascade_select_callback = _select
 
+        emitted = []
+        m0.agent_protocol.bus.on(
+            "speak", lambda m: emitted.append(m.data.get("utterance")))
+
         msg = _cascade_msg(query_id=query_id, originator_peer=s0.peer)
         s0.send(msg)
 
-        assert len(invoked) >= 1
+        poll_until(lambda: invoked, timeout=ANSWER_TIMEOUT,
+                   message="cascade_select_callback should be invoked")
+        # the agent's own single speak is the only one allowed on the bus
+        with pytest.raises(PollTimeout):
+            poll_until(lambda: len(emitted) > 1,
+                       timeout=1.0)
 
 
 class TestCascadeResponseMetadata:
@@ -265,6 +283,8 @@ class TestCascadeResponseMetadata:
         msg = _cascade_msg(query_id=query_id, originator_peer=s0.peer)
         s0.send(msg)
 
-        resp_messages = [r for r in responses if r.metadata.get("is_response")]
-        assert len(resp_messages) >= 1
+        resp_messages = poll_until(
+            lambda: [r for r in responses if r.metadata.get("is_response")],
+            timeout=ANSWER_TIMEOUT,
+            message="Satellite should receive a CASCADE response")
         assert "responder_peer" in resp_messages[0].metadata
