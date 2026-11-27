@@ -35,6 +35,8 @@ Deliberately NOT re-pinned here (already covered): the §3.1 protocol floor and
 prologue binding and TOFU pinning (``test_protocol_v3_noise.py``), and the
 ``crypto_required`` cleartext drop (``test_protocol_rules.py``).
 """
+import time
+
 import pytest
 
 from hivemind_bus_client.encryption import (AES_NONCE_SIZE,
@@ -56,6 +58,68 @@ requires_noise = pytest.mark.skipif(
     not NOISE_SUPPORTED,
     reason="poorman-handshake was installed without the noise primitive; the "
            "protocol-v3 MUSTs cannot be evaluated in this environment")
+
+
+def _put_connection_back_in_handshake(conn):
+    """Return ``conn`` to the state Noise message 1 actually arrives in.
+
+    These cells connect for real first, because the offer check they exercise
+    needs a registered connection. A real connect leaves a COMPLETED Noise
+    session behind, and hivemind-core 5.3.2's first guard in
+    ``handle_noise_handshake_message`` is::
+
+        if client.noise_transport is not None:
+            ...
+            return
+
+    "DROP THE FRAME, NOT THE SESSION" — an established session ignores a
+    duplicate or replayed HANDSHAKE frame instead of dying on it, which core
+    added deliberately against a one-frame denial of service. So a crafted
+    message 1 on a connected peer never reaches the offer check at all: it is
+    swallowed by that guard, nothing is refused, and the cell asserts against a
+    server that was never asked the question.
+
+    Clearing ``noise_transport`` as well as ``noise_handshake`` is what puts the
+    connection back in the mid-handshake state the offer check guards.
+    """
+    conn.noise_handshake = None
+    conn.noise_transport = None
+
+
+def _unpin_client_noise_key(master, conn):
+    """Remove the TOFU pin the real connect just wrote for ``conn``.
+
+    ``SatelliteNode.connect`` completes a genuine XXpsk2 handshake, and
+    completing one PINS the node's static key against its identity
+    (TOFU-then-pin, CRYPTO-1 §3.5). A cell about "the server holds no pin"
+    therefore has to undo it: with the pin in place the server is RIGHT to
+    accept KKpsk0, because §3.4.2 prefers KKpsk0 exactly when both peers hold
+    pinned keys, so the cell would be asserting against correct behaviour.
+    """
+    with master.hm_protocol.db as db:
+        user = db.get_client_by_api_key(conn.key)
+        assert user is not None, "precondition: the client identity is in the db"
+        user.metadata = user.metadata or {}
+        user.metadata.pop("noise_pubkey", None)
+        db.update_item(user)
+    assert master.hm_protocol._get_pinned_client_noise_key(conn) is None, (
+        "precondition: the pin the real connect wrote is gone, so the pin "
+        "check is what refuses KKpsk0 below")
+
+
+def _wait_until_dropped(master, peer, timeout: float = 5.0) -> bool:
+    """Wait for the server to finish dropping ``peer``, up to ``timeout``.
+
+    ``_abort_noise_handshake`` sets ``client.disconnected`` and calls
+    ``client.disconnect()`` while the caller is still on the stack, but the
+    removal from ``hm_protocol.clients`` follows when the transport reports the
+    close, which core's own comment puts "a few loop turns later". Returns the
+    final state rather than asserting, so the caller keeps its own message.
+    """
+    deadline = time.monotonic() + timeout
+    while peer in master.hm_protocol.clients and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return peer not in master.hm_protocol.clients
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +351,10 @@ class TestNodeSelectsOnlyFromWhatTheServerOffered:
                 lambda *a, **kw: started.append(kw.get("pattern")) or (_ for _ in ()).throw(
                     AssertionError("unreachable")))
             conn = master.hm_protocol.clients[satellite.peer]
-            conn.noise_handshake = None
+            assert conn.noise_transport is not None, (
+                "precondition: the real connect establishes a Noise session, "
+                "which is the state the frame guard below swallows")
+            _put_connection_back_in_handshake(conn)
             conn._handshake_payload = {
                 "noise": {"patterns": [NOISE_PATTERN_XX],
                           "suites": [NOISE_SUITE_CHACHA]}}
@@ -303,7 +370,10 @@ class TestNodeSelectsOnlyFromWhatTheServerOffered:
                 "offered — the selection must be refused before any Noise "
                 "state is created")
             assert conn.noise_handshake is None
-            assert satellite.peer not in master.hm_protocol.clients, (
+            assert conn.disconnected, (
+                "the refusal is recorded on the connection before the call "
+                "returns; this is the observable that does not race")
+            assert _wait_until_dropped(master, satellite.peer), (
                 "asserting an unoffered pattern/suite is a fatal handshake "
                 "failure — the connection MUST be dropped, not downgraded")
         finally:
@@ -339,7 +409,11 @@ class TestNodeSelectsOnlyFromWhatTheServerOffered:
                 lambda *a, **kw: started.append(kw.get("pattern")) or (_ for _ in ()).throw(
                     AssertionError("unreachable")))
             conn = master.hm_protocol.clients[satellite.peer]
-            conn.noise_handshake = None
+            assert conn.noise_transport is not None, (
+                "precondition: the real connect establishes a Noise session, "
+                "which is the state the frame guard below swallows")
+            _put_connection_back_in_handshake(conn)
+            _unpin_client_noise_key(master, conn)
             conn._handshake_payload = {
                 "noise": {"patterns": [NOISE_PATTERN_KK, NOISE_PATTERN_XX],
                           "suites": [NOISE_SUITE_CHACHA]}}
@@ -354,7 +428,12 @@ class TestNodeSelectsOnlyFromWhatTheServerOffered:
             assert started == [], (
                 "the server began a KKpsk0 handshake for a peer whose static "
                 "key it has never pinned")
-            assert satellite.peer not in master.hm_protocol.clients
+            assert conn.disconnected, (
+                "the refusal is recorded on the connection before the call "
+                "returns; this is the observable that does not race")
+            assert _wait_until_dropped(master, satellite.peer), (
+                "KKpsk0 without a pinned key is a fatal handshake failure — "
+                "the connection MUST be dropped, not downgraded")
         finally:
             master.cleanup()
             satellite.cleanup()

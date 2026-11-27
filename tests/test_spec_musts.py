@@ -1601,9 +1601,18 @@ class TestKeyEstablishmentMessageGate:
         conn = m0.hm_protocol.clients[s0.peer]
         conn.noise_transport = None  # pre-Split() state
 
-        frame = json.dumps({"msg_type": HiveMessageType.BUS.value,
-                            "payload": Message("recognizer_loop:utterance",
-                                               {}).serialize()})
+        # The frame is built through HiveMessage rather than by hand: MSG-1 §4
+        # requires an OBJECT payload for BUS, and hivemind-bus-client 1.2.4a1
+        # began enforcing it. A hand-built frame carrying Message.serialize()
+        # puts a JSON STRING there, which now raises MalformedWirePayload
+        # while the frame is parsed - before decode() ever reaches the
+        # encryption gate this cell exists to prove. The cell needs a
+        # well-formed cleartext BUS frame, and HiveMessage is what produces
+        # one.
+        frame = HiveMessage(
+            HiveMessageType.BUS,
+            payload=Message("recognizer_loop:utterance", {}),
+        ).serialize()
         with pytest.raises(UnencryptedMessageError):
             conn.decode(frame)
 
