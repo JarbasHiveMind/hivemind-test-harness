@@ -22,7 +22,7 @@ from tests.conftest import (
     make_ovoscope_agent,
     VOICE_TYPES,
     SKILL_HELLO,
-    skill_missing, make_utterance, intent_matched,
+    skill_missing, make_utterance, intent_matched, utterance_ended,
     wait_for_skill_intents,
 )
 
@@ -152,6 +152,9 @@ class TestLangMismatch:
         assert intent_matched(messages, SKILL_HELLO) is None, (
             f"German utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
         )
+        assert utterance_ended(messages), (
+            f"Utterance did not reach the end of the hub pipeline.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
     def test_french_utterance_no_match(self, lang_topology):
         """TS-LANG-04 — French 'bonjour le monde' does not match en-US hello-world."""
@@ -166,6 +169,9 @@ class TestLangMismatch:
 
         assert intent_matched(messages, SKILL_HELLO) is None, (
             f"French utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
+        )
+        assert utterance_ended(messages), (
+            f"Utterance did not reach the end of the hub pipeline.\nCaptured: {[m.msg_type for m in messages]}"
         )
 
 

@@ -45,6 +45,7 @@ CONVERSE_PIPELINE = [
     "ovos-adapt-pipeline-plugin-low",
     "ovos-padatious-pipeline-plugin-low",
 ]
+START_DICTATION_PIPELINE = ["ovos-padatious-pipeline-plugin-high"]
 
 TIMEOUT_SKILL_ID = "timeout-test-skill.test"
 
@@ -321,25 +322,36 @@ class TestDictation:
             f"Captured: {[m.msg_type for m in messages]}"
         )
 
+    @pytest.mark.xfail(strict=True, reason="ovos-skill-dictation does not "
+                       "capture the utterance in converse (issue #86)")
     def test_dictation_captures_utterances(self, dictation_topology):
         """TS-CA-06 — utterances during dictation are captured, not matched as intents."""
         b, agent = dictation_topology
         agent.clear()
         s0 = b.get_satellite("S0")
 
-        # Start dictation
+        # The stop pipeline matches "start dictation" as a global stop, so
+        # start dictation through padatious only.
         cap1 = open_capture(agent)
-        s0.send(make_utterance("start dictation", CONVERSE_PIPELINE,
+        s0.send(make_utterance("start dictation", START_DICTATION_PIPELINE,
                                 s0.shim.session_id))
-        cap1.wait(timeout=15)
+        started = cap1.wait(timeout=15)
+        assert any(m.msg_type == "recognizer_loop:state.set"
+                   and m.data.get("mode") == "continuous" for m in started), (
+            "Dictation did not start.\n"
+            f"Captured: {[m.msg_type for m in started]}"
+        )
+        # The hub session now lists dictation as an active handler. A fresh
+        # session would not, and converse would never ask the skill.
+        handled = next(m for m in reversed(started)
+                       if m.msg_type == "ovos.utterance.handled")
+        session = dict(handled.context["session"], pipeline=CONVERSE_PIPELINE)
         agent.clear()
 
-        # Send text that would normally trigger an intent
-        cap2 = open_capture(agent, 
-            eof_msgs=["ovos.utterance.handled", "ovos.session.update"]
-        )
-        s0.send(make_utterance("hello world", CONVERSE_PIPELINE,
-                                s0.shim.session_id))
+        cap2 = open_capture(agent)
+        utt = make_utterance("hello world", CONVERSE_PIPELINE, s0.shim.session_id)
+        utt.context["session"] = session
+        s0.send(utt)
         messages = cap2.wait(timeout=15)
 
         # No skill in this MiniCroft handles "hello world", so outside
@@ -350,6 +362,11 @@ class TestDictation:
             "ovos.intent.unmatched" not in types, (
             "Dictation mode should capture utterances, not match intents.\n"
             f"Captured: {types}"
+        )
+        # Positive control: the utterance reached the hub and the converse
+        # pipeline consumed it.
+        assert "ovos.utterance.handled" in types, (
+            f"Utterance did not reach the end of the hub pipeline.\nCaptured: {types}"
         )
 
     def test_stop_dictation(self, dictation_topology):

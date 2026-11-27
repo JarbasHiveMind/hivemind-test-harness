@@ -29,7 +29,7 @@ from tests.conftest import (
     make_ovoscope_agent,
     VOICE_TYPES,
     SKILL_HELLO, SKILL_DATETIME, SKILL_VOLUME, SKILL_FALLBACK,
-    skill_missing, make_utterance, assert_types_in_order, intent_matched,
+    skill_missing, make_utterance, assert_types_in_order, intent_matched, utterance_ended,
     wait_for_satellite_message,
     wait_for_skill_intents,
 )
@@ -149,6 +149,9 @@ class TestSkillBlacklist:
         assert intent_matched(messages, SKILL_HELLO) is None, (
             f"Blacklisted skill executed.\nCaptured: {[m.msg_type for m in messages]}"
         )
+        assert utterance_ended(messages), (
+            f"Utterance did not reach the end of the hub pipeline.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
     def test_non_blacklisted_skill_works(self, skill_blacklist_topology):
         """TS-ACL-02 — date-time not blacklisted: still works for S0."""
@@ -202,6 +205,9 @@ class TestIntentBlacklist:
 
         assert intent_matched(messages, SKILL_HELLO, "greetings") is None, (
             f"Blacklisted intent was executed.\nCaptured: {[m.msg_type for m in messages]}"
+        )
+        assert utterance_ended(messages), (
+            f"Utterance did not reach the end of the hub pipeline.\nCaptured: {[m.msg_type for m in messages]}"
         )
 
     def test_other_intents_in_same_skill_work(self, intent_blacklist_topology):

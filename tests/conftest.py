@@ -489,6 +489,16 @@ def intent_matched(messages: list, skill_id: str, intent: str = None):
     return None
 
 
+def utterance_ended(messages: list) -> bool:
+    """True when the hub processed the utterance to its end.
+
+    A negative check (``intent_matched(...) is None``) also passes when the
+    utterance never reached the hub. This is the positive control for it.
+    """
+    return any(m.msg_type in ("ovos.intent.unmatched", "ovos.utterance.handled")
+               for m in messages)
+
+
 def make_utterance(text: str, pipeline: list, session_id: str,
                    lang: str = "en-US") -> "Message":
     """Build a recognizer_loop:utterance Message with a specific pipeline."""
