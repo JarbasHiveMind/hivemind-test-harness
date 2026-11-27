@@ -342,11 +342,14 @@ class TestDictation:
                                 s0.shim.session_id))
         messages = cap2.wait(timeout=15)
 
-        # Should NOT trigger hello_world_intent — dictation captures it
-        hello_intents = [m for m in messages
-                         if "hello_world_intent" in m.msg_type]
-        assert len(hello_intents) == 0, (
-            "Dictation mode should capture utterances, not match intents"
+        # No skill in this MiniCroft handles "hello world", so outside
+        # dictation the utterance ends in ovos.intent.unmatched. In dictation
+        # the converse handler captures it and nothing reaches intent matching.
+        types = [m.msg_type for m in messages]
+        assert "ovos.intent.matched" not in types and \
+            "ovos.intent.unmatched" not in types, (
+            "Dictation mode should capture utterances, not match intents.\n"
+            f"Captured: {types}"
         )
 
     def test_stop_dictation(self, dictation_topology):

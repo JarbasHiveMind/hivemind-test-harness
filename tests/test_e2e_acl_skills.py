@@ -29,7 +29,7 @@ from tests.conftest import (
     make_ovoscope_agent,
     VOICE_TYPES,
     SKILL_HELLO, SKILL_DATETIME, SKILL_VOLUME, SKILL_FALLBACK,
-    skill_missing, make_utterance, assert_types_in_order,
+    skill_missing, make_utterance, assert_types_in_order, intent_matched,
     wait_for_satellite_message,
     wait_for_skill_intents,
 )
@@ -98,12 +98,12 @@ def skill_blacklist_topology(acl_agent):
 
 @pytest.fixture(scope="module")
 def intent_blacklist_topology(acl_agent):
-    """S0 has the hello-world hello_world_intent handler blacklisted."""
+    """S0 has the hello-world greetings intent blacklisted."""
     b = TopologyBuilder()
     try:
         b.add_master("M0", agent_protocol=acl_agent)
         b.add_satellite("S0", upstream=b.get_master("M0"),
-                         intent_blacklist=[f"{SKILL_HELLO}:hello_world_intent"],
+                         intent_blacklist=[f"{SKILL_HELLO}:greetings"],
                          allowed_types=VOICE_TYPES)
         b.start_all()
         yield b, acl_agent
@@ -145,10 +145,10 @@ class TestSkillBlacklist:
         s0.send(make_utterance("hello world", DEFAULT_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        # hello_world_intent should NOT fire — should get fallback or intent failure
-        assert not any(
-            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
-        ), f"Blacklisted skill executed.\nCaptured: {[m.msg_type for m in messages]}"
+        # hello-world should NOT match — should get fallback or intent failure
+        assert intent_matched(messages, SKILL_HELLO) is None, (
+            f"Blacklisted skill executed.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
     def test_non_blacklisted_skill_works(self, skill_blacklist_topology):
         """TS-ACL-02 — date-time not blacklisted: still works for S0."""
@@ -176,9 +176,9 @@ class TestSkillBlacklist:
         s1.send(make_utterance("hello world", HELLO_PIPELINE, s1.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        assert any(
-            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
-        ), f"Unrestricted satellite should trigger hello-world.\nCaptured: {[m.msg_type for m in messages]}"
+        assert intent_matched(messages, SKILL_HELLO) is not None, (
+            f"Unrestricted satellite should trigger hello-world.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +191,7 @@ class TestIntentBlacklist:
     """TS-ACL-04..05 — intent_blacklist blocks specific intents."""
 
     def test_blacklisted_intent_blocked(self, intent_blacklist_topology):
-        """TS-ACL-04 — hello_world_intent blacklisted: 'hello world' fails."""
+        """TS-ACL-04 — greetings blacklisted: 'hello world' fails."""
         b, agent = intent_blacklist_topology
         agent.clear()
         s0 = b.get_satellite("S0")
@@ -200,25 +200,22 @@ class TestIntentBlacklist:
         s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        assert not any(
-            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
-        ), f"Blacklisted intent was executed.\nCaptured: {[m.msg_type for m in messages]}"
+        assert intent_matched(messages, SKILL_HELLO, "greetings") is None, (
+            f"Blacklisted intent was executed.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
     def test_other_intents_in_same_skill_work(self, intent_blacklist_topology):
-        """TS-ACL-05 — greetings not blacklisted: 'good morning' works."""
+        """TS-ACL-05 — how_are_you not blacklisted: 'how are you' works."""
         b, agent = intent_blacklist_topology
         agent.clear()
         s0 = b.get_satellite("S0")
 
         padatious = ["ovos-padatious-pipeline-plugin-high"]
         cap = open_capture(agent)
-        s0.send(make_utterance("good morning", padatious, s0.shim.session_id))
+        s0.send(make_utterance("how are you", padatious, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        intent = next(
-            (m for m in messages if m.msg_type == f"{SKILL_HELLO}:greetings"),
-            None,
-        )
+        intent = intent_matched(messages, SKILL_HELLO, "how_are_you")
         assert intent is not None, (
             f"Non-blacklisted intent in same skill should still work.\n"
             f"Captured: {[m.msg_type for m in messages]}"
@@ -273,9 +270,9 @@ class TestMsgBlacklist:
         messages = cap.wait(timeout=15)
 
         # Skill should still fire on hub
-        assert any(
-            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
-        ), f"Skill should still execute on hub.\nCaptured: {[m.msg_type for m in messages]}"
+        assert intent_matched(messages, SKILL_HELLO) is not None, (
+            f"Skill should still execute on hub.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
         # But satellite should NOT receive speak
         time.sleep(1)

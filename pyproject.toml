@@ -104,7 +104,9 @@ ovos = [
     # test_protocol_v3_noise boots it as a subprocess to round-trip bus messages.
     "ovos-messagebus>=0.0.13a1",
     "ovos-padatious>=1.4.2,<2.0.0",
-    "ovos-skill-hello-world",
+    # 0.6.0a2 merges "hello world" into the greetings intent; the e2e
+    # tests name greetings and how_are_you.
+    "ovos-skill-hello-world>=0.6.0a2",
     "ovos-skill-date-time",
     # Skills this extra deliberately leaves out: ovos-skill-volume,
     # ovos-skill-fallback-unknown, and the rest of the e2e cast. Every module

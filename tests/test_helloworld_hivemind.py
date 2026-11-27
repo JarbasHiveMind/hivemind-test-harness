@@ -21,7 +21,7 @@ sequence on the skill bus is identical to what the upstream tests assert.
 
 Test IDs
 --------
-TS-HW-01   padatious pipeline: "hello world" → hello_world_intent → speak
+TS-HW-01   padatious pipeline: "hello world" → hello-world skill → speak
 TS-HW-02   adapt pipeline: "hello world" → ovos.intent.unmatched
 TS-HW-03   padatious pipeline: "good morning" → greetings intent → speak
 TS-HW-04   adapt pipeline: "good morning" → ovos.intent.unmatched
@@ -36,7 +36,7 @@ from ovos_bus_client.session import Session
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (open_capture, make_ovoscope_agent,
-                            wait_for_skill_intents)
+                            intent_matched, wait_for_skill_intents)
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
 # handlers run serially after that, so the repo-wide 30s default is far too
@@ -142,10 +142,10 @@ def hw_topology():
 
 
 # ---------------------------------------------------------------------------
-# TS-HW-01  padatious pipeline: "hello world" → hello_world_intent → speak
-# (ovos-skill-hello-world 0.5.2a2 registers the handler name
-# `<skill_id>:hello_world_intent`. The older Adapt spelling
-# `<skill_id>:HelloWorldIntent` gets 0 listeners on this skill.)
+# TS-HW-01  padatious pipeline: "hello world" → hello-world skill → speak
+# The skill renames its handlers between releases (HelloWorldIntent,
+# hello_world_intent, greetings), so these tests assert on the skill id in
+# ovos.intent.matched and not on a handler name.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(_skill_missing(), reason=f"{SKILL_ID} not installed")
@@ -177,12 +177,9 @@ class TestHelloWorldIntentViaHiveMind:
         s0.send(_make_utterance("hello world", self.PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=60)
 
-        intent_msg = next(
-            (m for m in messages if m.msg_type == f"{SKILL_ID}:hello_world_intent"),
-            None,
-        )
+        intent_msg = intent_matched(messages, SKILL_ID)
         assert intent_msg is not None, (
-            f"Intent '{SKILL_ID}:hello_world_intent' not found.\n"
+            f"ovos.intent.matched for '{SKILL_ID}' not found.\n"
             f"Captured: {_types(messages)}"
         )
         assert "hello world" in intent_msg.data.get("utterance", "")
@@ -217,7 +214,7 @@ class TestHelloWorldIntentViaHiveMind:
         _assert_types_in_order(
             messages,
             "recognizer_loop:utterance",
-            f"{SKILL_ID}:hello_world_intent",
+            "ovos.intent.matched",
             "mycroft.skill.handler.start",
             SpecMessage.SPEAK,
             "mycroft.skill.handler.complete",

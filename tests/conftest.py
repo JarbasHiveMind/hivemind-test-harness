@@ -474,6 +474,21 @@ def wait_for_skill_intents(agent, skill_id: str, timeout: float = 120) -> bool:
     return False
 
 
+def intent_matched(messages: list, skill_id: str, intent: str = None):
+    """Return the ``ovos.intent.matched`` message for `skill_id`, or None.
+
+    With `intent`, the match must also name the intent `<skill_id>:<intent>`.
+    The notification carries the skill id, so a test that only needs "this
+    skill handled the utterance" does not depend on the handler name.
+    """
+    for m in messages:
+        if m.msg_type != "ovos.intent.matched" or m.data.get("skill_id") != skill_id:
+            continue
+        if intent is None or m.data.get("intent_name") == f"{skill_id}:{intent}":
+            return m
+    return None
+
+
 def make_utterance(text: str, pipeline: list, session_id: str,
                    lang: str = "en-US") -> "Message":
     """Build a recognizer_loop:utterance Message with a specific pipeline."""

@@ -22,7 +22,7 @@ from tests.conftest import (
     make_ovoscope_agent,
     VOICE_TYPES,
     SKILL_HELLO,
-    skill_missing, make_utterance,
+    skill_missing, make_utterance, intent_matched,
     wait_for_skill_intents,
 )
 
@@ -110,9 +110,9 @@ class TestLangPropagation:
                                 lang="en-US"))
         messages = cap.wait(timeout=15)
 
-        assert any(
-            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
-        ), f"English utterance should match.\nCaptured: {[m.msg_type for m in messages]}"
+        assert intent_matched(messages, SKILL_HELLO) is not None, (
+            f"English utterance should match.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
     def test_lang_preserved_in_hub_message(self, lang_topology):
         """TS-LANG-02 — lang field preserved when message reaches hub bus."""
@@ -148,10 +148,10 @@ class TestLangMismatch:
                                 lang="de-DE"))
         messages = cap.wait(timeout=15)
 
-        # Should NOT match hello_world_intent (English-only vocab)
-        assert not any(
-            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
-        ), f"German utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
+        # Should NOT match the hello-world skill (English-only vocab)
+        assert intent_matched(messages, SKILL_HELLO) is None, (
+            f"German utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
     def test_french_utterance_no_match(self, lang_topology):
         """TS-LANG-04 — French 'bonjour le monde' does not match en-US hello-world."""
@@ -164,9 +164,9 @@ class TestLangMismatch:
                                 lang="fr-FR"))
         messages = cap.wait(timeout=15)
 
-        assert not any(
-            m.msg_type == f"{SKILL_HELLO}:hello_world_intent" for m in messages
-        ), f"French utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
+        assert intent_matched(messages, SKILL_HELLO) is None, (
+            f"French utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
 
 @pytest.mark.skipif(skill_missing(SKILL_HELLO), reason="ovos-skill-hello-world not installed")
