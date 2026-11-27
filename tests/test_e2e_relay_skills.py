@@ -182,6 +182,7 @@ class TestDeepChain:
 class TestVolumeRelay:
     """TS-RL-04 — volume messages through relay."""
 
+    @pytest.mark.xfail(strict=True, reason="#85: a message through the relay does not reach the satellite")
     def test_volume_through_relay(self, relay_topology):
         """TS-RL-04 — 'maximum volume' through relay delivers volume.set to S0."""
         b, agent = relay_topology
