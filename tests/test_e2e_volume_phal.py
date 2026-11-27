@@ -25,6 +25,7 @@ from ovos_spec_tools import SpecMessage
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     make_ovoscope_agent,
     VOICE_TYPES,
@@ -134,7 +135,7 @@ def volume_topology():
         else:
             # MiniCroft is already booted — the finally block below shuts it
             # down, so the skip does not leak the agent.
-            pytest.skip("Volume skill intents not registered within 120s")
+            skill_not_ready("Volume skill intents not registered within 120s")
 
         b.add_master("M0", agent_protocol=agent)
         b.add_satellite("S0", upstream=b.get_master("M0"),

@@ -18,6 +18,7 @@ from ovos_workshop.skills import OVOSSkill
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     make_ovoscope_agent,
     VOICE_TYPES,
@@ -80,7 +81,7 @@ def lang_topology():
     )
 
     if not wait_for_skill_intents(agent, SKILL_HELLO):
-        pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+        skill_not_ready(f"{SKILL_HELLO} registered no intent handler "
                     f"within 120s - the skill did not load")
 
     b = TopologyBuilder()

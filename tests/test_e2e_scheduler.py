@@ -22,6 +22,7 @@ from ovos_workshop.skills import OVOSSkill
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     make_ovoscope_agent,
     VOICE_TYPES,
@@ -117,7 +118,7 @@ def scheduler_topology():
         else:
             # MiniCroft is already booted — skipping without stopping it leaks
             # the whole agent (bus, threads, skill services) into the session.
-            pytest.skip("Scheduler test skill not registered within 120s")
+            skill_not_ready("Scheduler test skill not registered within 120s")
 
         b.add_master("M0", agent_protocol=agent)
         b.add_satellite("S0", upstream=b.get_master("M0"),

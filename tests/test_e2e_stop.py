@@ -32,6 +32,7 @@ from ovos_spec_tools import SpecMessage
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     make_ovoscope_agent,
     SKILL_COUNT, SKILL_HELLO,
@@ -59,6 +60,8 @@ STOP_PIPELINE = [
 @pytest.fixture(scope="module")
 def stop_topology():
     """Boot MiniCroft with count + hello-world skills."""
+    if skill_missing(SKILL_COUNT):
+        pytest.skip("ovos-skill-count not installed")
     agent = make_ovoscope_agent(skill_ids=[SKILL_COUNT, SKILL_HELLO])
 
     _deadline = time.monotonic() + 120
@@ -67,7 +70,7 @@ def stop_topology():
             break
         time.sleep(0.5)
     else:
-        pytest.skip("Count skill intents not registered within 120s")
+        skill_not_ready("Count skill intents not registered within 120s")
 
     b = TopologyBuilder()
     try:

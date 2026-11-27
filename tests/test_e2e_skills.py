@@ -20,6 +20,7 @@ from ovos_spec_tools import SpecMessage
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     make_ovoscope_agent,
     SKILL_DATETIME, SKILL_PERSONAL, SKILL_NAPTIME, SKILL_FALLBACK,
@@ -72,7 +73,7 @@ def skills_topology():
             # Sibling e2e modules all skip here; this one silently carried on
             # and every test then failed for the wrong reason. The finally
             # block shuts the already-booted MiniCroft down.
-            pytest.skip("Date-time skill intents not registered within 120s")
+            skill_not_ready("Date-time skill intents not registered within 120s")
 
         b.add_master("M0", agent_protocol=agent)
         b.add_satellite("S0", upstream=b.get_master("M0"),

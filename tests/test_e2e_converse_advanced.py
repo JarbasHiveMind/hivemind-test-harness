@@ -22,6 +22,7 @@ from ovos_workshop.skills import OVOSSkill
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     make_ovoscope_agent,
     VOICE_TYPES,
@@ -120,7 +121,7 @@ def cancel_topology():
     agent = make_ovoscope_agent(skill_ids=skill_ids, extra_skills=extra)
 
     if not wait_for_skill_intents(agent, TIMEOUT_SKILL_ID):
-        pytest.skip(f"{TIMEOUT_SKILL_ID} registered no intent handler within "
+        skill_not_ready(f"{TIMEOUT_SKILL_ID} registered no intent handler within "
                     f"120s - the skill did not load")
 
     b = TopologyBuilder()
@@ -143,7 +144,7 @@ def dictation_topology():
     agent = make_ovoscope_agent(skill_ids=[SKILL_DICTATION])
 
     if not wait_for_skill_intents(agent, SKILL_DICTATION):
-        pytest.skip(f"{SKILL_DICTATION} registered no intent handler within "
+        skill_not_ready(f"{SKILL_DICTATION} registered no intent handler within "
                     f"120s - the skill did not load")
 
     b = TopologyBuilder()
