@@ -128,6 +128,8 @@ ovos = [
     # test_e2e_acl_skills and test_e2e_relay_acl need these two skills.
     "ovos-skill-fallback-unknown",
     "ovos-skill-volume",
+    # test_e2e_stop needs a skill with a stop handler.
+    "ovos-skill-count>=0.7.2a1",
     # test_solver_harness exercises HiveMindSolver (module ovos_hivemind_solver)
     "ovos-solver-hivemind-plugin",
     # SG-7: the ovos-m2v intent pipeline ships sklearn-pickled models trained

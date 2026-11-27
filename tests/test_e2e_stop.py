@@ -36,7 +36,7 @@ from tests.conftest import (
     open_capture,
     make_ovoscope_agent,
     SKILL_COUNT, SKILL_HELLO,
-    skill_missing, make_utterance, wait_for_satellite_message, poll_until,
+    skill_missing, wait_for_skill_intents, make_utterance, wait_for_satellite_message, poll_until,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -46,12 +46,13 @@ pytestmark = pytest.mark.timeout(300)
 
 # Pipeline with stop support
 STOP_PIPELINE = [
+    "ovos-stop-pipeline-plugin-high",
     "ovos-converse-pipeline-plugin",
-    "ovos-stop-pipeline-plugin",
     "ovos-adapt-pipeline-plugin-high",
     "ovos-padatious-pipeline-plugin-high",
     "ovos-adapt-pipeline-plugin-medium",
     "ovos-padatious-pipeline-plugin-medium",
+    "ovos-stop-pipeline-plugin-medium",
     "ovos-adapt-pipeline-plugin-low",
     "ovos-padatious-pipeline-plugin-low",
 ]
@@ -64,12 +65,7 @@ def stop_topology():
         pytest.skip("ovos-skill-count not installed")
     agent = make_ovoscope_agent(skill_ids=[SKILL_COUNT, SKILL_HELLO])
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_COUNT}:count_to_N.intent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
+    if not wait_for_skill_intents(agent, SKILL_COUNT):
         skill_not_ready("Count skill intents not registered within 120s")
 
     b = TopologyBuilder()
@@ -231,7 +227,7 @@ class TestStopNoActiveSkills:
     """TS-ST-06 -- stop when no skills are active."""
 
     def test_stop_with_nothing_active(self, stop_topology):
-        """TS-ST-06 -- 'stop' with no active skills emits mycroft.stop."""
+        """TS-ST-06 -- 'stop' with no active skills emits ovos.stop."""
         b, agent = stop_topology
         agent.clear()
         s0 = b.get_satellite("S0")
@@ -241,10 +237,10 @@ class TestStopNoActiveSkills:
         # Wait for stop processing
         time.sleep(3)
 
-        # Should get mycroft.stop (global stop) since no skills are active
-        stop_msgs = [m for m in agent.injected if m.msg_type == "mycroft.stop"]
+        # Should get ovos.stop (global stop) since no skills are active
+        stop_msgs = [m for m in agent.injected if m.msg_type == SpecMessage.STOP]
         assert len(stop_msgs) >= 1, (
-            f"mycroft.stop not emitted.\n"
+            f"ovos.stop not emitted.\n"
             f"All types: {[m.msg_type for m in agent.injected]}"
         )
 
@@ -275,8 +271,8 @@ class TestStopAfterQuickSkill:
         time.sleep(3)
 
         # Should get global stop since no skills are stoppable
-        stop_msgs = [m for m in agent.injected if m.msg_type == "mycroft.stop"]
+        stop_msgs = [m for m in agent.injected if m.msg_type == SpecMessage.STOP]
         assert len(stop_msgs) >= 1, (
-            f"mycroft.stop not emitted after completed skill.\n"
+            f"ovos.stop not emitted after completed skill.\n"
             f"All types: {[m.msg_type for m in agent.injected]}"
         )
