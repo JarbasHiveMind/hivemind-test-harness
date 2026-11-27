@@ -55,7 +55,9 @@ dependencies = [
     # (NODE-1 §5.5) and refuses an over-long binary metadata block
     # (WIRE-1 §4.1, hivemind-websocket-client#177). test_conformance_wave5
     # asserts both outright, so an older release fails rather than skips.
-    "hivemind_bus_client>=1.0.6a1",
+    # 1.2.11a2 is the first release whose codec runs on bitstring 5, which
+    # has no BitStream (JarbasHiveMind/hivemind-test-harness#80).
+    "hivemind_bus_client>=1.2.11a2",
     "poorman-handshake>=2.0.0a1",
 ]
 
