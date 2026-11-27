@@ -119,16 +119,14 @@ ovos = [
     # the real agent backend the v3 Noise hub connects to (127.0.0.1:8181);
     # test_protocol_v3_noise boots it as a subprocess to round-trip bus messages.
     "ovos-messagebus>=0.0.13a1",
-    "ovos-padatious>=1.4.2,<2.0.0",
+    "ovos-padatious>=2.2.7a1",
     # 0.6.0a2 merges "hello world" into the greetings intent; the e2e
     # tests name greetings and how_are_you.
     "ovos-skill-hello-world>=0.6.0a2",
     "ovos-skill-date-time",
-    # Skills this extra deliberately leaves out: ovos-skill-volume,
-    # ovos-skill-fallback-unknown, and the rest of the e2e cast. Every module
-    # that needs one guards itself with skill_missing() and skips, so the
-    # volume/PHAL and most ACL scenarios never run in CI — they are local-run
-    # coverage. Add a skill here only together with the CI time it costs.
+    # test_e2e_acl_skills and test_e2e_relay_acl need these two skills.
+    "ovos-skill-fallback-unknown",
+    "ovos-skill-volume",
     # test_solver_harness exercises HiveMindSolver (module ovos_hivemind_solver)
     "ovos-solver-hivemind-plugin",
     # SG-7: the ovos-m2v intent pipeline ships sklearn-pickled models trained
