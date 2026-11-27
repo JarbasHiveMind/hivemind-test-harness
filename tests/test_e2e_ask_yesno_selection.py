@@ -46,6 +46,7 @@ from ovos_workshop.skills import OVOSSkill
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     make_ovoscope_agent,
     VOICE_TYPES,
@@ -244,7 +245,7 @@ def yesno_topology():
             break
         time.sleep(0.5)
     else:
-        pytest.skip("Injected skills not registered within 120s")
+        skill_not_ready("Injected skills not registered within 120s")
 
     b = TopologyBuilder()
     try:

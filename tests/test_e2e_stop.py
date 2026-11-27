@@ -32,6 +32,7 @@ from ovos_spec_tools import SpecMessage
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     make_ovoscope_agent,
     SKILL_COUNT, SKILL_HELLO,
@@ -67,7 +68,7 @@ def stop_topology():
             break
         time.sleep(0.5)
     else:
-        pytest.skip("Count skill intents not registered within 120s")
+        skill_not_ready("Count skill intents not registered within 120s")
 
     b = TopologyBuilder()
     try:

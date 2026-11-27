@@ -23,6 +23,7 @@ from ovos_bus_client.session import Session
 from hivescope import assert_session_id_natted
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     SKILL_HELLO, SKILL_DATETIME,
     skill_missing, make_utterance, make_ovoscope_agent,
@@ -48,7 +49,7 @@ def session_topology():
     agent = make_ovoscope_agent(skill_ids=[SKILL_HELLO, SKILL_DATETIME])
 
     if not wait_for_skill_intents(agent, SKILL_HELLO):
-        pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+        skill_not_ready(f"{SKILL_HELLO} registered no intent handler "
                     f"within 120s - the skill did not load")
 
     b = TopologyBuilder()

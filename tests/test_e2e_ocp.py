@@ -21,6 +21,7 @@ from ovos_workshop.skills import OVOSSkill
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     make_ovoscope_agent,
     skill_missing, make_utterance, wait_for_satellite_message,
@@ -119,7 +120,7 @@ def ocp_topology():
             break
         time.sleep(0.5)
     else:
-        pytest.skip("OCP test skill not registered within 120s")
+        skill_not_ready("OCP test skill not registered within 120s")
 
     b = TopologyBuilder()
     try:

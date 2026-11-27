@@ -35,6 +35,7 @@ Topology catalogue
                                ├─ long arm: RA0→RA1→…→RA9→S_deep  (depth 10)
                                └─ short arms: S_short0/1/2         (depth 1)
 """
+import os
 import random
 import socket
 from dataclasses import dataclass
@@ -472,6 +473,18 @@ def wait_for_skill_intents(agent, skill_id: str, timeout: float = 120) -> bool:
             return True
         time.sleep(0.5)
     return False
+
+
+def skill_not_ready(reason: str) -> None:
+    """End a fixture whose skill did not register its intents in time.
+
+    Under CI (env CI set, as GitHub Actions does) this fails, so a module
+    cannot go green with no test run. Locally it skips. Set
+    HARNESS_ALLOW_SKILL_SKIP=1 to skip under CI too.
+    """
+    if os.environ.get("CI") and os.environ.get("HARNESS_ALLOW_SKILL_SKIP") != "1":
+        pytest.fail(reason, pytrace=False)
+    pytest.skip(reason)
 
 
 def intent_matched(messages: list, skill_id: str, intent: str = None):

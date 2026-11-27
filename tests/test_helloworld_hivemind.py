@@ -35,7 +35,7 @@ from ovos_spec_tools import SpecMessage
 from ovos_bus_client.session import Session
 
 from hivescope.topology import TopologyBuilder
-from tests.conftest import (open_capture, make_ovoscope_agent,
+from tests.conftest import (open_capture, skill_not_ready, make_ovoscope_agent,
                             intent_matched, wait_for_skill_intents)
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -125,7 +125,7 @@ def hw_topology():
     # MiniCroft sets ProcessState.READY before the skill's initialize()
     # completes; intents are registered asynchronously in a background thread.
     if not wait_for_skill_intents(agent, SKILL_ID):
-        pytest.skip(f"{SKILL_ID} registered no intent handler within 120s - "
+        skill_not_ready(f"{SKILL_ID} registered no intent handler within 120s - "
                     f"the skill did not load")
 
     b = TopologyBuilder()

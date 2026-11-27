@@ -16,6 +16,7 @@ from ovos_spec_tools import SpecMessage
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     VOICE_TYPES,
     make_ovoscope_agent,
@@ -53,7 +54,7 @@ def relay_acl_agent():
     )
     try:
         if not wait_for_skill_intents(agent, SKILL_HELLO):
-            pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+            skill_not_ready(f"{SKILL_HELLO} registered no intent handler "
                         f"within 120s - the skill did not load")
         yield agent
     finally:

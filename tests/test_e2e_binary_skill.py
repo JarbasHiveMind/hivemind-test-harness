@@ -22,6 +22,7 @@ from hivemind_bus_client.serialization import HiveMindBinaryPayloadType
 
 from hivescope.topology import TopologyBuilder
 from tests.conftest import (
+    skill_not_ready,
     open_capture,
     make_ovoscope_agent,
     VOICE_TYPES,
@@ -49,7 +50,7 @@ def binary_skill_topology():
     agent = make_ovoscope_agent(skill_ids=[SKILL_HELLO])
 
     if not wait_for_skill_intents(agent, SKILL_HELLO):
-        pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+        skill_not_ready(f"{SKILL_HELLO} registered no intent handler "
                     f"within 120s - the skill did not load")
 
     b = TopologyBuilder()
