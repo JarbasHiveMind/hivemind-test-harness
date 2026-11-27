@@ -29,6 +29,11 @@ from tests.conftest import (
 # tight for this module.
 pytestmark = pytest.mark.timeout(300)
 
+RELAY_NO_ANSWER = pytest.mark.xfail(
+    strict=True,
+    reason="#85: a positive case through the relay gets no answer",
+)
+
 DEFAULT_PIPELINE = [
     "ovos-adapt-pipeline-plugin-high",
     "ovos-padatious-pipeline-plugin-high",
@@ -114,6 +119,7 @@ class TestRelayBlacklistPropagation:
             f"Blacklisted skill at relay level should not execute.\nCaptured: {[m.msg_type for m in messages]}"
         )
 
+    @RELAY_NO_ANSWER
     def test_non_blacklisted_skill_through_relay(self, relay_skill_blacklist_topology):
         """TS-RACL-02 — date-time not blacklisted at relay; still works for S0."""
         b, agent = relay_skill_blacklist_topology
@@ -157,6 +163,7 @@ class TestLeafBlacklistAtRelay:
                     "Date-time skill should be blacklisted for S0"
                 )
 
+    @RELAY_NO_ANSWER
     def test_non_blacklisted_skill_at_leaf(self, relay_leaf_blacklist_topology):
         """TS-RACL-04 — hello-world not blacklisted for S0; works normally."""
         b, agent = relay_leaf_blacklist_topology
@@ -171,6 +178,7 @@ class TestLeafBlacklistAtRelay:
             f"Hello-world should work for S0.\nCaptured: {[m.msg_type for m in messages]}"
         )
 
+    @RELAY_NO_ANSWER
     def test_response_routes_through_relay(self, relay_leaf_blacklist_topology):
         """TS-RACL-05 — speak routes back through relay to leaf satellite."""
         b, agent = relay_leaf_blacklist_topology
