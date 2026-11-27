@@ -39,7 +39,7 @@ dependencies = [
     # returns a RelayNode (relay.listener is the downstream master),
     # MessageRecorder.snapshot(), assert_ping_responded(since=/flood_id=) and
     # assert_policy_denied(strict=, deny_code=).
-    "hivescope>=0.6.2a1",
+    "hivescope>=0.8.14a1",
     # protocol v3 (Noise XXpsk2) floor for tests/test_protocol_v3_noise.py: the
     # Noise handshake, the password-strength backstop and derive-psk provisioning
     # all require this stack. Prerelease floors so pip resolves them without --pre.
@@ -114,7 +114,7 @@ dev = [
 # needs to actually match intents (ovos-adapt-parser / ovos-padatious /
 # common-query / ocp — without them MiniCroft logs "Unknown pipeline matcher").
 ovos = [
-    "hivescope[ovos]>=0.6.2a1",
+    "hivescope[ovos]>=0.8.14a1",
     "ovos-core[plugins]>=2.0.0a2",
     # the real agent backend the v3 Noise hub connects to (127.0.0.1:8181);
     # test_protocol_v3_noise boots it as a subprocess to round-trip bus messages.

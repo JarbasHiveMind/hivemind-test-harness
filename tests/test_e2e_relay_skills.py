@@ -48,28 +48,6 @@ DEFAULT_PIPELINE = [
     "ovos-padatious-pipeline-plugin-low",
 ]
 
-# A bus-level `recognizer_loop:utterance` injected at a relay is delivered to
-# the relay's OWN agent bus (an empty TestAgentProtocol), not escalated up to
-# the root master where MiniCroft (the only brain with skills) lives. The
-# harness relay forwards BROADCAST/PROPAGATE/ESCALATE control frames upstream,
-# but not plain agent-bus utterances — so a leaf utterance never reaches
-# MiniCroft and no skill responds. Routing a real OVOS utterance across a relay
-# to a single upstream brain is an unimplemented harness capability (it needs
-# either MiniCroft on the relay or utterance escalation); tracked as a relay
-# skill-execution gap. Skip rather than report a false failure.
-_RELAY_ROUTING_UNSUPPORTED = (
-    "relay does not route agent-bus utterances upstream to the root MiniCroft "
-    "(harness capability gap; see module docstring)"
-)
-
-# The three classes below carried `@pytest.mark.skip(_RELAY_ROUTING_UNSUPPORTED)`.
-# An unconditional skip never runs, so it can neither prove the gap is still
-# there nor tell us when it closes: with the volume class skipped for a missing
-# skill as well, "ovos-e2e (5)" ran 0 of 10 tests and reported green. A strict
-# xfail runs the cell, records the known-red result, and turns the shard red on
-# the day relay routing starts working - which is the day these cells must stop
-# being marked. The gap is recorded in GAPS.md.
-
 
 @pytest.fixture(scope="module")
 def relay_topology():
@@ -88,7 +66,8 @@ def relay_topology():
     b = TopologyBuilder()
     try:
         b.add_master("M0", agent_protocol=agent)
-        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0"),
+                                allowed_types=["recognizer_loop:utterance"]).listener
         b.add_satellite("S0", upstream=r1_master,
                         allowed_types=["recognizer_loop:utterance"])
         b.start_all()
@@ -110,8 +89,10 @@ def deep_relay_topology():
     b = TopologyBuilder()
     try:
         b.add_master("M0", agent_protocol=agent)
-        r1_master = b.add_relay("R1", upstream=b.get_master("M0")).listener
-        r2_master = b.add_relay("R2", upstream=r1_master).listener
+        r1_master = b.add_relay("R1", upstream=b.get_master("M0"),
+                                allowed_types=["recognizer_loop:utterance"]).listener
+        r2_master = b.add_relay("R2", upstream=r1_master,
+                                allowed_types=["recognizer_loop:utterance"]).listener
         b.add_satellite("S0", upstream=r2_master,
                         allowed_types=["recognizer_loop:utterance"])
         b.start_all()
@@ -121,7 +102,6 @@ def deep_relay_topology():
         agent.shutdown()
 
 
-@pytest.mark.xfail(strict=True, reason=_RELAY_ROUTING_UNSUPPORTED)
 @pytest.mark.skipif(skill_missing(SKILL_HELLO), reason="ovos-skill-hello-world not installed")
 class TestRelayUtterance:
     """TS-RL-01..02 — utterances and responses through relay."""
@@ -156,7 +136,6 @@ class TestRelayUtterance:
         assert msg.data.get("utterance", "").lower() == "hello world"
 
 
-@pytest.mark.xfail(strict=True, reason=_RELAY_ROUTING_UNSUPPORTED)
 @pytest.mark.skipif(skill_missing(SKILL_HELLO), reason="ovos-skill-hello-world not installed")
 class TestDeepChain:
     """TS-RL-03 — utterances through deep relay chain (M0←R1←R2←S0)."""
@@ -183,7 +162,6 @@ class TestDeepChain:
 class TestVolumeRelay:
     """TS-RL-04 — volume messages through relay."""
 
-    @pytest.mark.xfail(strict=True, reason="#85: a message through the relay does not reach the satellite")
     def test_volume_through_relay(self, relay_topology):
         """TS-RL-04 — 'maximum volume' through relay delivers volume.set to S0."""
         b, agent = relay_topology
@@ -207,7 +185,6 @@ class TestVolumeRelay:
         assert sat_vol, "mycroft.volume.set not delivered to satellite through relay"
 
 
-@pytest.mark.xfail(strict=True, reason=_RELAY_ROUTING_UNSUPPORTED)
 @pytest.mark.skipif(skill_missing(SKILL_HELLO), reason="ovos-skill-hello-world not installed")
 class TestIntentFailureRelay:
     """TS-RL-05 — intent failure through relay."""
