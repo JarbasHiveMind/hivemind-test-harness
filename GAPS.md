@@ -5,7 +5,7 @@ owns the fix. Remove a row when its job goes green.
 
 | Job | Test | Cause | Owner | Unblocked by |
 | --- | --- | --- | --- | --- |
-| none | | | | |
+| ovos-e2e (5) | `tests/test_e2e_relay_skills.py` TS-RL-01, TS-RL-02, TS-RL-03, TS-RL-05 | A relay forwards BROADCAST/PROPAGATE/ESCALATE control frames upstream, but not plain agent-bus utterances, so a leaf utterance never reaches the root MiniCroft and no skill answers. The cells carry `xfail(strict=True)`: they run, and the shard turns red on the day relay routing starts to work. | harness lane (JarbasHiveMind/hivemind-test-harness) | relay utterance escalation, or MiniCroft on the relay |
 
 ## Consumer defects seen in the e2e shards that do not turn a test red
 

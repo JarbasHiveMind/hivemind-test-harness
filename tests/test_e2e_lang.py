@@ -9,7 +9,6 @@ Test IDs
 --------
 TS-LANG-01 through TS-LANG-05
 """
-import time
 
 import pytest
 from ovos_bus_client.message import Message
@@ -23,7 +22,8 @@ from tests.conftest import (
     make_ovoscope_agent,
     VOICE_TYPES,
     SKILL_HELLO,
-    skill_missing, make_utterance,
+    skill_missing, make_utterance, intent_matched, utterance_ended,
+    wait_for_skill_intents,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -79,13 +79,9 @@ def lang_topology():
         extra_skills={MULTILANG_SKILL_ID: MultiLangTestSkill}
     )
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("Skills not registered within 120s")
+    if not wait_for_skill_intents(agent, SKILL_HELLO):
+        pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+                    f"within 120s - the skill did not load")
 
     b = TopologyBuilder()
     try:
@@ -114,9 +110,9 @@ class TestLangPropagation:
                                 lang="en-US"))
         messages = cap.wait(timeout=15)
 
-        assert any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
-        ), f"English utterance should match.\nCaptured: {[m.msg_type for m in messages]}"
+        assert intent_matched(messages, SKILL_HELLO) is not None, (
+            f"English utterance should match.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
     def test_lang_preserved_in_hub_message(self, lang_topology):
         """TS-LANG-02 — lang field preserved when message reaches hub bus."""
@@ -152,10 +148,13 @@ class TestLangMismatch:
                                 lang="de-DE"))
         messages = cap.wait(timeout=15)
 
-        # Should NOT match HelloWorldIntent (English-only vocab)
-        assert not any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
-        ), f"German utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
+        # Should NOT match the hello-world skill (English-only vocab)
+        assert intent_matched(messages, SKILL_HELLO) is None, (
+            f"German utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
+        )
+        assert utterance_ended(messages), (
+            f"Utterance did not reach the end of the hub pipeline.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
     def test_french_utterance_no_match(self, lang_topology):
         """TS-LANG-04 — French 'bonjour le monde' does not match en-US hello-world."""
@@ -168,9 +167,12 @@ class TestLangMismatch:
                                 lang="fr-FR"))
         messages = cap.wait(timeout=15)
 
-        assert not any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
-        ), f"French utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
+        assert intent_matched(messages, SKILL_HELLO) is None, (
+            f"French utterance should not match English intent.\nCaptured: {[m.msg_type for m in messages]}"
+        )
+        assert utterance_ended(messages), (
+            f"Utterance did not reach the end of the hub pipeline.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
 
 @pytest.mark.skipif(skill_missing(SKILL_HELLO), reason="ovos-skill-hello-world not installed")

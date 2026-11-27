@@ -451,6 +451,54 @@ def skill_missing(*skill_ids: str) -> bool:
     return any(sid not in plugins for sid in skill_ids)
 
 
+def wait_for_skill_intents(agent, skill_id: str, timeout: float = 120) -> bool:
+    """Wait until `skill_id` has registered at least one intent handler.
+
+    MiniCroft sets ProcessState.READY before a skill's initialize() completes,
+    and intents register asynchronously, so a fixture must wait for the
+    handler before it sends an utterance.
+
+    The name of the handler is NOT part of the wait. Each module used to poll
+    for the exact event `<skill_id>:HelloWorldIntent`. ovos-skill-hello-world
+    renamed that handler to `<skill_id>:hello_world_intent`, so the poll ran
+    out its full 120s and every test in the module skipped - green, with 0
+    tests run. Any `<skill_id>:` handler proves the skill loaded, which is
+    what the fixtures need to know.
+    """
+    prefix = f"{skill_id}:"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if any(str(ev).startswith(prefix) for ev in agent.bus.ee._events):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def intent_matched(messages: list, skill_id: str, intent: str = None):
+    """Return the ``ovos.intent.matched`` message for `skill_id`, or None.
+
+    With `intent`, the match must also name the intent `<skill_id>:<intent>`.
+    The notification carries the skill id, so a test that only needs "this
+    skill handled the utterance" does not depend on the handler name.
+    """
+    for m in messages:
+        if m.msg_type != "ovos.intent.matched" or m.data.get("skill_id") != skill_id:
+            continue
+        if intent is None or m.data.get("intent_name") == f"{skill_id}:{intent}":
+            return m
+    return None
+
+
+def utterance_ended(messages: list) -> bool:
+    """True when the hub processed the utterance to its end.
+
+    A negative check (``intent_matched(...) is None``) also passes when the
+    utterance never reached the hub. This is the positive control for it.
+    """
+    return any(m.msg_type in ("ovos.intent.unmatched", "ovos.utterance.handled")
+               for m in messages)
+
+
 def make_utterance(text: str, pipeline: list, session_id: str,
                    lang: str = "en-US") -> "Message":
     """Build a recognizer_loop:utterance Message with a specific pipeline."""

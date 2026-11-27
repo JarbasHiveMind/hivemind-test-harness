@@ -15,7 +15,6 @@ Test IDs
 TS-RL-01 through TS-RL-05
 """
 import threading
-import time
 
 import pytest
 from ovos_bus_client.message import Message
@@ -28,6 +27,7 @@ from tests.conftest import (
     SKILL_HELLO, SKILL_VOLUME,
     skill_missing, make_utterance, assert_types_in_order,
     wait_for_satellite_message,
+    wait_for_skill_intents,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -61,6 +61,14 @@ _RELAY_ROUTING_UNSUPPORTED = (
     "(harness capability gap; see module docstring)"
 )
 
+# The three classes below carried `@pytest.mark.skip(_RELAY_ROUTING_UNSUPPORTED)`.
+# An unconditional skip never runs, so it can neither prove the gap is still
+# there nor tell us when it closes: with the volume class skipped for a missing
+# skill as well, "ovos-e2e (5)" ran 0 of 10 tests and reported green. A strict
+# xfail runs the cell, records the known-red result, and turns the shard red on
+# the day relay routing starts working - which is the day these cells must stop
+# being marked. The gap is recorded in GAPS.md.
+
 
 @pytest.fixture(scope="module")
 def relay_topology():
@@ -72,13 +80,9 @@ def relay_topology():
                  lambda m: agent.bus.emit(m.response({"percent": 0.5, "muted": False})))
 
     # Wait for hello-world intent
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("HelloWorldIntent not registered within 120s")
+    if not wait_for_skill_intents(agent, SKILL_HELLO):
+        pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+                    f"within 120s - the skill did not load")
 
     b = TopologyBuilder()
     try:
@@ -98,13 +102,9 @@ def deep_relay_topology():
     """Deep chain: M0(MiniCroft) ← R1 ← R2 ← S0."""
     agent = make_ovoscope_agent(skill_ids=[SKILL_HELLO])
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        pytest.skip("HelloWorldIntent not registered within 120s")
+    if not wait_for_skill_intents(agent, SKILL_HELLO):
+        pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+                    f"within 120s - the skill did not load")
 
     b = TopologyBuilder()
     try:
@@ -120,7 +120,7 @@ def deep_relay_topology():
         agent.shutdown()
 
 
-@pytest.mark.skip(reason=_RELAY_ROUTING_UNSUPPORTED)
+@pytest.mark.xfail(strict=True, reason=_RELAY_ROUTING_UNSUPPORTED)
 @pytest.mark.skipif(skill_missing(SKILL_HELLO), reason="ovos-skill-hello-world not installed")
 class TestRelayUtterance:
     """TS-RL-01..02 — utterances and responses through relay."""
@@ -155,7 +155,7 @@ class TestRelayUtterance:
         assert msg.data.get("utterance", "").lower() == "hello world"
 
 
-@pytest.mark.skip(reason=_RELAY_ROUTING_UNSUPPORTED)
+@pytest.mark.xfail(strict=True, reason=_RELAY_ROUTING_UNSUPPORTED)
 @pytest.mark.skipif(skill_missing(SKILL_HELLO), reason="ovos-skill-hello-world not installed")
 class TestDeepChain:
     """TS-RL-03 — utterances through deep relay chain (M0←R1←R2←S0)."""
@@ -205,7 +205,7 @@ class TestVolumeRelay:
         assert sat_vol, "mycroft.volume.set not delivered to satellite through relay"
 
 
-@pytest.mark.skip(reason=_RELAY_ROUTING_UNSUPPORTED)
+@pytest.mark.xfail(strict=True, reason=_RELAY_ROUTING_UNSUPPORTED)
 @pytest.mark.skipif(skill_missing(SKILL_HELLO), reason="ovos-skill-hello-world not installed")
 class TestIntentFailureRelay:
     """TS-RL-05 — intent failure through relay."""

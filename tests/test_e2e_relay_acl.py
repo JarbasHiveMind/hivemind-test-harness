@@ -9,7 +9,6 @@ Test IDs
 --------
 TS-RACL-01 through TS-RACL-05
 """
-import time
 
 import pytest
 from ovos_bus_client.message import Message
@@ -21,7 +20,8 @@ from tests.conftest import (
     VOICE_TYPES,
     make_ovoscope_agent,
     SKILL_HELLO, SKILL_DATETIME, SKILL_FALLBACK,
-    skill_missing, make_utterance,
+    skill_missing, make_utterance, intent_matched,
+    wait_for_skill_intents,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -52,13 +52,9 @@ def relay_acl_agent():
         skill_ids=[SKILL_HELLO, SKILL_DATETIME, SKILL_FALLBACK]
     )
     try:
-        _deadline = time.monotonic() + 120
-        while time.monotonic() < _deadline:
-            if len(agent.bus.ee.listeners(f"{SKILL_HELLO}:HelloWorldIntent")) > 0:
-                break
-            time.sleep(0.5)
-        else:
-            pytest.skip("Skills not registered within 120s")
+        if not wait_for_skill_intents(agent, SKILL_HELLO):
+            pytest.skip(f"{SKILL_HELLO} registered no intent handler "
+                        f"within 120s - the skill did not load")
         yield agent
     finally:
         agent.shutdown()
@@ -114,9 +110,9 @@ class TestRelayBlacklistPropagation:
         messages = cap.wait(timeout=15)
 
         # hello-world should be blocked at the relay level
-        assert not any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
-        ), f"Blacklisted skill at relay level should not execute.\nCaptured: {[m.msg_type for m in messages]}"
+        assert intent_matched(messages, SKILL_HELLO) is None, (
+            f"Blacklisted skill at relay level should not execute.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
     def test_non_blacklisted_skill_through_relay(self, relay_skill_blacklist_topology):
         """TS-RACL-02 — date-time not blacklisted at relay; still works for S0."""
@@ -171,9 +167,9 @@ class TestLeafBlacklistAtRelay:
         s0.send(make_utterance("hello world", HELLO_PIPELINE, s0.shim.session_id))
         messages = cap.wait(timeout=15)
 
-        assert any(
-            m.msg_type == f"{SKILL_HELLO}:HelloWorldIntent" for m in messages
-        ), f"Hello-world should work for S0.\nCaptured: {[m.msg_type for m in messages]}"
+        assert intent_matched(messages, SKILL_HELLO) is not None, (
+            f"Hello-world should work for S0.\nCaptured: {[m.msg_type for m in messages]}"
+        )
 
     def test_response_routes_through_relay(self, relay_leaf_blacklist_topology):
         """TS-RACL-05 — speak routes back through relay to leaf satellite."""
