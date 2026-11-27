@@ -107,6 +107,10 @@ class TestUnknownMsgTypeIsUnroutable:
         """End-to-end: the master's own decoder refuses the frame, so the
         payload never reaches the agent bus.
 
+        After Split() the master drops a frame that it cannot read as a
+        HiveMessage and keeps the connection open (MSG-1 §2, §3): decode
+        returns None, and a normal message after the drop still routes.
+
         The frame is properly encrypted for this connection on purpose: it is
         a Noise transport message sealed with the satellite's own transport,
         as the satellite would send it. A cleartext frame would be refused by
@@ -129,10 +133,14 @@ class TestUnknownMsgTypeIsUnroutable:
                         "context": {}},
         }))
 
-        with pytest.raises(ValueError, match="Unknown HiveMessage.msg_type"):
-            conn.decode(frame)
-
+        assert conn.decode(frame) is None
         m0.agent_protocol.assert_not_injected(UTTERANCE)
+
+        assert m0.hm_protocol.clients.get(s0.peer) is conn
+        s0.send(Message(UTTERANCE, {"utterances": ["after the drop"]}))
+        m0.agent_protocol.assert_injected(UTTERANCE, count=1)
+        assert m0.agent_protocol.last_injected(UTTERANCE).data["utterances"] \
+            == ["after the drop"]
 
 
 # ---------------------------------------------------------------------------
