@@ -387,7 +387,7 @@ SKILL_SPELLING = "ovos-skill-spelling.openvoiceos"
 SKILL_PARROT = "ovos-skill-parrot.openvoiceos"
 SKILL_IP = "ovos-skill-ip.openvoiceos"
 SKILL_COUNT = "ovos-skill-count.openvoiceos"
-SKILL_RANDOMNESS = "ovos-skill-randomness.openvoiceos"
+SKILL_RANDOMNESS = "skill-ovos-randomness.openvoiceos"
 SKILL_DICTATION = "ovos-skill-dictation.openvoiceos"
 SKILL_TUNEIN = "ovos-skill-tunein.openvoiceos"
 
@@ -464,12 +464,15 @@ def wait_for_skill_intents(agent, skill_id: str, timeout: float = 120) -> bool:
     renamed that handler to `<skill_id>:hello_world_intent`, so the poll ran
     out its full 120s and every test in the module skipped - green, with 0
     tests run. Any `<skill_id>:` handler proves the skill loaded, which is
-    what the fixtures need to know.
+    what the fixtures need to know. A fallback skill registers no intent;
+    its `ovos.skills.fallback.<skill_id>.request` handler proves it loaded.
     """
     prefix = f"{skill_id}:"
+    fallback = f"ovos.skills.fallback.{skill_id}.request"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if any(str(ev).startswith(prefix) for ev in agent.bus.ee._events):
+        if any(str(ev).startswith(prefix) or ev == fallback
+               for ev in agent.bus.ee._events):
             return True
         time.sleep(0.5)
     return False

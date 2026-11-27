@@ -43,7 +43,7 @@ from tests.conftest import (
     open_capture,
     make_ovoscope_agent,
     SKILL_RANDOMNESS, SKILL_VOLUME,
-    skill_missing, make_utterance, wait_for_satellite_message,
+    skill_missing, wait_for_skill_intents, make_utterance, wait_for_satellite_message,
 )
 
 # MiniCroft boot alone can take up to MINICROFT_READY_TIMEOUT (180s), and skill
@@ -118,14 +118,10 @@ def get_response_topology():
     agent.bus.on("mycroft.volume.get",
                  lambda m: agent.bus.emit(m.response({"percent": 0.5, "muted": False})))
 
-    _deadline = time.monotonic() + 120
-    while time.monotonic() < _deadline:
-        # Check randomness skill loaded
-        if len(agent.bus.ee.listeners(f"{SKILL_RANDOMNESS}:make-a-choice.intent")) > 0:
-            break
-        time.sleep(0.5)
-    else:
-        skill_not_ready("Randomness skill intents not registered within 120s")
+    for skill_id in (SKILL_RANDOMNESS, SKILL_VOLUME):
+        if not skill_missing(skill_id) and not wait_for_skill_intents(agent, skill_id):
+            agent.shutdown()
+            skill_not_ready(f"{skill_id} intents not registered within 120s")
 
     b = TopologyBuilder()
     try:
@@ -155,7 +151,7 @@ class TestMakeAChoice:
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent, 
-            eof_msgs=["ovos.utterance.handled", "skill.converse.get_response.enable"]
+            eof_msgs=["ovos.utterance.handled", SpecMessage.SPEAK]
         )
         s0.send(make_utterance("make a choice", GET_RESPONSE_PIPELINE,
                                 s0.shim.session_id))
@@ -179,7 +175,7 @@ class TestMakeAChoice:
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent, 
-            eof_msgs=["ovos.utterance.handled", "skill.converse.get_response.enable"]
+            eof_msgs=["ovos.utterance.handled", SpecMessage.SPEAK]
         )
         s0.send(make_utterance("make a choice", GET_RESPONSE_PIPELINE,
                                 s0.shim.session_id))
@@ -188,6 +184,9 @@ class TestMakeAChoice:
         msg = wait_for_satellite_message(s0, SpecMessage.SPEAK, timeout=10)
         assert msg is not None, "get_response question not forwarded to satellite"
 
+    @pytest.mark.xfail(strict=True, reason=(
+        "hivemind-test-harness#93: the question speak reaches HiveMind only "
+        "when the ovoscope get_response watchdog aborts it, so no answer lands"))
     def test_full_choice_dialog(self, get_response_topology):
         """TS-GR-03 -- complete two-turn dialog: first choice + second choice -> result."""
         b, agent = get_response_topology
@@ -309,7 +308,7 @@ class TestVolumeGetResponse:
         s0 = b.get_satellite("S0")
 
         cap = open_capture(agent, 
-            eof_msgs=["ovos.utterance.handled", "skill.converse.get_response.enable"]
+            eof_msgs=["ovos.utterance.handled", SpecMessage.SPEAK]
         )
         # "change volume" matches adapt intent but has no number -> get_response
         s0.send(make_utterance("change the volume", GET_RESPONSE_PIPELINE,
