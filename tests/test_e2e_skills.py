@@ -12,7 +12,6 @@ Test IDs
 TS-SK-01 through TS-SK-11
 """
 import threading
-import time
 
 import pytest
 from ovos_bus_client.message import Message
@@ -25,7 +24,7 @@ from tests.conftest import (
     make_ovoscope_agent,
     SKILL_DATETIME, SKILL_PERSONAL, SKILL_NAPTIME, SKILL_FALLBACK,
     SKILL_EASTER_EGGS, SKILL_SPELLING,
-    skill_missing, make_utterance, assert_types_in_order,
+    skill_missing, wait_for_skill_intents, make_utterance, assert_types_in_order,
     wait_for_satellite_message,
 )
 
@@ -56,24 +55,11 @@ def skills_topology():
     """Boot MiniCroft with multiple skills, connect one satellite."""
     agent = make_ovoscope_agent(skill_ids=ALL_SKILLS)
 
-    # Wait for skills to register intents (up to 120s). date-time registers
-    # padatious .intent handlers (e.g. what.time.is.it.intent), not an adapt
-    # HandleTimeIntent — wait for the real intent so we don't burn the full
-    # 120s deadline before every run.
     b = TopologyBuilder()
     try:
-        _deadline = time.monotonic() + 120
-        while time.monotonic() < _deadline:
-            listeners = agent.bus.ee.listeners(
-                f"{SKILL_DATETIME}:what.time.is.it.intent")
-            if len(listeners) > 0:
-                break
-            time.sleep(0.5)
-        else:
-            # Sibling e2e modules all skip here; this one silently carried on
-            # and every test then failed for the wrong reason. The finally
-            # block shuts the already-booted MiniCroft down.
-            skill_not_ready("Date-time skill intents not registered within 120s")
+        for skill_id in ALL_SKILLS:
+            if not skill_missing(skill_id) and not wait_for_skill_intents(agent, skill_id):
+                skill_not_ready(f"{skill_id} intents not registered within 120s")
 
         b.add_master("M0", agent_protocol=agent)
         b.add_satellite("S0", upstream=b.get_master("M0"),

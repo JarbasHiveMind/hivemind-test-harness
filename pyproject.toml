@@ -124,6 +124,7 @@ ovos = [
     # tests name greetings and how_are_you.
     "ovos-skill-hello-world>=0.6.0a2",
     "ovos-skill-date-time",
+    "ovos-skill-randomness>=2.0.2a8",
     # test_e2e_acl_skills and test_e2e_relay_acl need these two skills.
     "ovos-skill-fallback-unknown",
     "ovos-skill-volume",
