@@ -60,6 +60,8 @@ STOP_PIPELINE = [
 @pytest.fixture(scope="module")
 def stop_topology():
     """Boot MiniCroft with count + hello-world skills."""
+    if skill_missing(SKILL_COUNT):
+        pytest.skip("ovos-skill-count not installed")
     agent = make_ovoscope_agent(skill_ids=[SKILL_COUNT, SKILL_HELLO])
 
     _deadline = time.monotonic() + 120
